@@ -150,10 +150,12 @@ function toggleExpand(id) {
 // Add new progress
 const showAddProgress = ref(false)
 // progressDraft = 唯一正文状态源（手动输入 & 文件导入都写这里）
+const progressTitle = ref('')
 const progressDraft = ref('')
 // progressImportedHtml = 仅用于 v-html 预览显示，与 progressDraft 同步
 const progressImportedHtml = ref('')
 const progressTags = ref([])
+const progressHighlight = ref(false)
 const progressDraftTime = ref('')
 const aiProcessing = ref(false)
 const aiResult = ref(null)
@@ -162,8 +164,10 @@ const progressAiError = ref('')
 function startAddProgress() {
   progressDraftTime.value = nowDatetimeLocal()
   progressAiError.value = ''
+  progressTitle.value = ''
   progressDraft.value = ''
   progressImportedHtml.value = ''
+  progressHighlight.value = false
   showAddProgress.value = true
 }
 
@@ -174,16 +178,19 @@ function saveProgressDirect() {
     return
   }
   const iso = progressDraftTime.value ? new Date(progressDraftTime.value).toISOString() : new Date().toISOString()
-  const plainTitle = content.replace(/<[^>]+>/g, '').trim().slice(0, 30)
+  const titleVal = progressTitle.value.trim() || content.replace(/<[^>]+>/g, '').trim().slice(0, 30)
   projectsStore.addProjectUpdate(selectedId.value, {
-    title: plainTitle,
+    title: titleVal,
     content,
     tags: progressTags.value,
+    highlight: progressHighlight.value,
     created_at: iso,
   })
+  progressTitle.value = ''
   progressDraft.value = ''
   progressImportedHtml.value = ''
   progressTags.value = []
+  progressHighlight.value = false
   showAddProgress.value = false
 }
 
@@ -196,9 +203,10 @@ async function submitProgress() {
   try {
     const result = await organizeProgress(progressDraft.value, current.value?.name)
     aiResult.value = {
-      title: result.title,
+      title: progressTitle.value.trim() || result.title,
       content: result.content || progressDraft.value,
       tags: result.suggestedTags?.length > 0 ? result.suggestedTags : progressTags.value,
+      highlight: progressHighlight.value,
       created_at: iso,
     }
   } catch (err) {
@@ -231,18 +239,21 @@ function confirmProgress() {
     title: aiResult.value.title,
     content: aiResult.value.content,
     tags: aiResult.value.tags,
+    highlight: aiResult.value.highlight,
     created_at: iso,
   })
+  progressTitle.value = ''
   progressDraft.value = ''
   progressImportedHtml.value = ''
   progressTags.value = []
+  progressHighlight.value = false
   aiResult.value = null
   showAddProgress.value = false
 }
 
 // Edit existing timeline entry
 const editingUpdateId = ref(null)
-const updateEditDraft = ref({ title: '', content: '', tags: [] })
+const updateEditDraft = ref({ title: '', content: '', tags: [], highlight: false })
 const updateEditDraftTime = ref('')
 const editUpdateLoading = ref(false)
 const editUpdateError = ref('')
@@ -253,6 +264,7 @@ function startEditUpdate(u) {
     title: u.title,
     content: u.content,
     tags: [...(u.tags || [])],
+    highlight: u.highlight || false,
   }
   updateEditDraftTime.value = toDatetimeLocal(u.created_at)
 }
@@ -264,6 +276,7 @@ function saveUpdateEdit() {
     title: updateEditDraft.value.title.trim(),
     content: updateEditDraft.value.content.trim(),
     tags: updateEditDraft.value.tags,
+    highlight: updateEditDraft.value.highlight,
     ...(iso ? { created_at: iso } : {}),
   })
   editingUpdateId.value = null
@@ -345,9 +358,9 @@ function nowDatetimeLocal() {
 </script>
 
 <template>
-  <div class="page-wide" style="display:flex;gap:20px;align-items:flex-start" @click="showProjectMenu = false">
+  <div class="page-wide projects-layout" @click="showProjectMenu = false">
     <!-- Left: Project List -->
-    <div style="width:280px;flex-shrink:0">
+    <div class="projects-left">
       <div class="flex-between mb-12">
         <div class="card-title" style="margin:0">专项列表</div>
         <button class="small" @click="showNewProject = true">+ 新建</button>
@@ -384,7 +397,7 @@ function nowDatetimeLocal() {
     </div>
 
     <!-- Right: Project Detail -->
-    <div style="flex:1;min-width:0" v-if="current">
+    <div class="projects-right" v-if="current">
       <div class="flex-between" style="margin-bottom:20px">
         <h2 style="font-size:20px;margin:0">{{ current.name }}</h2>
         <div class="flex gap-8" style="align-items:center">
@@ -499,6 +512,10 @@ function nowDatetimeLocal() {
         <!-- Add Progress Inline -->
         <div v-if="showAddProgress" class="mt-12" style="padding:12px;border-radius:var(--radius);background:var(--color-bg)" @dragover.prevent @drop.prevent>
           <div v-if="!aiResult">
+            <div class="mb-8">
+              <label class="text-xs text-secondary">标题</label>
+              <input type="text" v-model="progressTitle" placeholder="进展标题（选填，留空自动从内容提取）" />
+            </div>
             <!-- 文件导入后：HTML 完整预览，绕过 Tiptap（Tiptap 无表格支持） -->
             <div v-if="progressImportedHtml">
               <div class="flex-between mb-4">
@@ -516,11 +533,17 @@ function nowDatetimeLocal() {
             <div class="mt-8">
               <FileUploader label="导入文件（txt / md / docx / pdf，支持拖拽）" accept=".txt,.md,.docx,.pdf" @files-changed="onProgressFiles" />
             </div>
+            <div class="flex-center gap-8 mt-8">
+              <label class="flex-center gap-4" style="cursor:pointer;font-size:13px">
+                <input type="checkbox" v-model="progressHighlight" style="cursor:pointer" />
+                ⭐ 核心进展
+              </label>
+            </div>
             <div v-if="progressAiError" class="text-xs mt-8" style="color:var(--color-danger);background:#fff0f0;border:1px solid var(--color-danger);border-radius:4px;padding:6px 10px">{{ progressAiError }}</div>
             <div class="flex gap-8 mt-8" style="align-items:center">
               <label class="text-xs text-secondary" style="flex-shrink:0">记录时间</label>
               <input type="datetime-local" v-model="progressDraftTime" style="width:auto;flex:1;font-size:12px" />
-              <button class="small" @click="showAddProgress = false; progressDraft = ''; progressImportedHtml = ''; progressAiError = ''" :disabled="aiProcessing">取消</button>
+              <button class="small" @click="showAddProgress = false; progressTitle = ''; progressDraft = ''; progressImportedHtml = ''; progressHighlight = false; progressAiError = ''" :disabled="aiProcessing">取消</button>
               <button class="small" @click="saveProgressDirect" :disabled="aiProcessing">保存</button>
               <button class="small primary" @click="submitProgress" :disabled="aiProcessing">
                 {{ aiProcessing ? 'AI 整理中...' : '保存并 AI 整理' }}
@@ -541,6 +564,12 @@ function nowDatetimeLocal() {
               <label class="text-xs text-secondary">标签</label>
               <TagPicker v-model="aiResult.tags" scope-type="project" :scope-id="String(selectedId)" />
             </div>
+            <div class="flex-center gap-8 mt-8">
+              <label class="flex-center gap-4" style="cursor:pointer;font-size:13px">
+                <input type="checkbox" v-model="aiResult.highlight" style="cursor:pointer" />
+                ⭐ 核心进展
+              </label>
+            </div>
             <div class="flex gap-8 mt-8" style="align-items:center">
               <label class="text-xs text-secondary" style="flex-shrink:0">记录时间</label>
               <input type="datetime-local" v-model="progressDraftTime" style="width:auto;flex:1;font-size:12px" />
@@ -551,7 +580,10 @@ function nowDatetimeLocal() {
         </div>
 
         <!-- Timeline entries -->
-        <div v-for="u in updates" :key="u.id" class="mt-12" style="padding-left:16px;border-left:2px solid var(--color-border)">
+        <div
+          v-for="u in updates" :key="u.id" class="mt-12 update-entry"
+          :class="{ 'update-highlight': u.highlight }"
+        >
           <!-- Edit mode -->
           <div v-if="editingUpdateId === u.id">
             <div class="mb-8">
@@ -565,6 +597,12 @@ function nowDatetimeLocal() {
             <div class="mb-8">
               <label class="text-xs text-secondary">标签</label>
               <TagPicker v-model="updateEditDraft.tags" scope-type="project" :scope-id="String(selectedId)" />
+            </div>
+            <div class="flex-center gap-8 mb-8">
+              <label class="flex-center gap-4" style="cursor:pointer;font-size:13px">
+                <input type="checkbox" v-model="updateEditDraft.highlight" style="cursor:pointer" />
+                ⭐ 核心进展
+              </label>
             </div>
             <div v-if="editUpdateError" class="text-xs mb-8" style="color:var(--color-danger)">{{ editUpdateError }}</div>
             <div class="flex gap-8" style="align-items:center">
@@ -581,6 +619,7 @@ function nowDatetimeLocal() {
           <div v-else>
             <div class="flex-between" style="cursor:pointer" @click="toggleExpand(u.id)">
               <div>
+                <span v-if="u.highlight" style="margin-right:4px">⭐</span>
                 <strong class="text-sm">{{ u.title }}</strong>
                 <span class="text-xs text-secondary" style="margin-left:8px">{{ fmtTime(u.created_at) }}</span>
               </div>
@@ -676,3 +715,30 @@ function nowDatetimeLocal() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.projects-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+.projects-left {
+  flex: 0 0 260px;
+  min-width: 0;
+}
+.projects-right {
+  flex: 1;
+  min-width: 0;
+}
+
+.update-entry {
+  padding-left: 16px;
+  border-left: 2px solid var(--color-border);
+}
+.update-highlight {
+  border-left-color: var(--color-primary);
+  background: var(--color-primary-light, #e8f0fe);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 8px 8px 8px 16px;
+}
+</style>

@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia'
 import { getAll, save } from '../data/adapters/index.js'
-import { seedProjects } from '../data/seed.js'
 import { supabase } from '../lib/supabase.js'
 import { syncCreate, syncUpdate, syncDelete } from '../lib/cloudSync.js'
 
@@ -19,12 +18,7 @@ export const useProjectsStore = defineStore('projects', {
   actions: {
     init() {
       const stored = getAll(KEY)
-      if (stored) {
-        this.items = stored
-      } else {
-        this.items = JSON.parse(JSON.stringify(seedProjects))
-        this._persist()
-      }
+      this.items = stored || []
     },
 
     add(data) {
@@ -131,6 +125,7 @@ export const useProjectsStore = defineStore('projects', {
         title: data.title,
         content: data.content,
         tags: data.tags || [],
+        highlight: data.highlight || false,
         created_at: data.created_at || new Date().toISOString(),
       }
       p.updates.unshift(u)
@@ -154,8 +149,8 @@ export const useProjectsStore = defineStore('projects', {
       Object.assign(u, changes)
       p.updated_at = new Date().toISOString()
       this._persist()
-      // tags 字段暂不同步（v2-final project_updates 列定义中未明确 tags 列）
-      const { tags, ...cloudChanges } = changes
+      // tags / highlight 仅存本地，不同步到云端（v2-final schema 未含这两列）
+      const { tags, highlight, ...cloudChanges } = changes
       syncUpdate('project_updates', updateId, cloudChanges)
     },
 
@@ -180,7 +175,12 @@ export const useProjectsStore = defineStore('projects', {
         return
       }
 
-      if (!projects.length) return
+      // 无论云端是否为空，都以云端为权威来源覆盖本地
+      if (!projects.length) {
+        this.items = []
+        this._persist()
+        return
+      }
 
       const projectIds = projects.map(p => p.id)
       const [{ data: updates }, { data: judgements }] = await Promise.all([
@@ -197,6 +197,7 @@ export const useProjectsStore = defineStore('projects', {
           .filter(j => j.project_id === p.id)
           .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
       }))
+      this._persist()
     },
 
     _persist() {

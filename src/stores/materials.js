@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia'
 import { getAll, save } from '../data/adapters/index.js'
-import { seedMaterials } from '../data/seed.js'
 import { supabase } from '../lib/supabase.js'
 import { syncCreate, syncUpdate, syncDelete } from '../lib/cloudSync.js'
 
@@ -14,12 +13,7 @@ export const useMaterialsStore = defineStore('materials', {
   actions: {
     init() {
       const stored = getAll(KEY)
-      if (stored) {
-        this.items = stored
-      } else {
-        this.items = JSON.parse(JSON.stringify(seedMaterials))
-        this._persist()
-      }
+      this.items = stored || []
     },
 
     add(data) {
@@ -68,7 +62,9 @@ export const useMaterialsStore = defineStore('materials', {
         return
       }
 
-      if (materials.length) this.items = materials
+      // 无论云端是否为空，都以云端为权威来源覆盖本地
+      this.items = materials
+      this._persist()
     },
 
     _persist() {

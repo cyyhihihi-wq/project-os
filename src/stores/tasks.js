@@ -58,7 +58,15 @@ export const useTasksStore = defineStore('tasks', {
     update(id, changes) {
       const idx = this.items.findIndex(t => t.id === id)
       if (idx === -1) return
-      this.items[idx] = { ...this.items[idx], ...changes, updated_at: new Date().toISOString() }
+      const current = this.items[idx]
+      if ('status' in changes) {
+        if (changes.status === 'done' && current.status !== 'done') {
+          changes = { ...changes, completed_at: new Date().toISOString() }
+        } else if (changes.status !== 'done' && current.status === 'done') {
+          changes = { ...changes, completed_at: null }
+        }
+      }
+      this.items[idx] = { ...current, ...changes, updated_at: new Date().toISOString() }
       persistTasks(this.items)
       syncUpdate('tasks', id, { ...changes, updated_at: this.items[idx].updated_at })
     },
@@ -90,8 +98,11 @@ export const useTasksStore = defineStore('tasks', {
 
       if (error) {
         console.error('[cloud] tasks fetch error:', error.message)
-      } else if (tasks.length) {
+      } else {
+        // 无论云端是否为空，都以云端为权威来源覆盖本地
+        // 防止新设备首次登录时看到 seed/测试数据
         this.items = tasks
+        persistTasks(tasks)
       }
 
       // --- week_reviews ---
@@ -102,10 +113,11 @@ export const useTasksStore = defineStore('tasks', {
 
       if (rErr) {
         console.error('[cloud] week_reviews fetch error:', rErr.message)
-      } else if (reviews.length) {
+      } else {
         const reviewMap = {}
         reviews.forEach(r => { reviewMap[r.week_label] = r.content })
         this.weekReviews = reviewMap
+        persistReviews(reviewMap)
       }
     },
   },

@@ -6,7 +6,7 @@ import { useAuthStore } from '../stores/auth.js'
 const router = useRouter()
 const authStore = useAuthStore()
 
-const email = ref('')
+const email = ref('632982306@qq.com')
 const password = ref('')
 const isRegister = ref(false)
 const loading = ref(false)

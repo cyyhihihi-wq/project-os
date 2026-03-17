@@ -1,19 +1,16 @@
 import { getAll, save } from '../adapters/index.js'
-import { seedTasks } from '../seed.js'
 
 const KEY = 'work_tasks'
 const REVIEWS_KEY = 'work_week_reviews'
 
 /**
  * 从存储层加载任务列表。
- * 首次（空存储）时写入 seed 数据并返回。
+ * 首次（空存储）返回空数组，不注入 seed 数据。
+ * seed 数据仅供开发调试，不在生产环境自动填充。
  */
 export function loadTasks() {
   const stored = getAll(KEY)
-  if (stored !== null) return stored
-  const initial = JSON.parse(JSON.stringify(seedTasks))
-  save(KEY, initial)
-  return initial
+  return stored !== null ? stored : []
 }
 
 /**

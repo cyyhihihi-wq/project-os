@@ -39,8 +39,22 @@ const tasks = computed(() => tasksStore.items)
 const newTitle = ref('')
 const newProjectId = ref('')
 const newPriority = ref('')
-const newDue = ref('')
 const showInputOptions = ref(false)
+
+function getFridayOfWeek(info) {
+  const friday = new Date(info.monday)
+  friday.setDate(friday.getDate() + 4)
+  const y = friday.getFullYear()
+  const m = String(friday.getMonth() + 1).padStart(2, '0')
+  const d = String(friday.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+// 默认截止日期 = 当前显示周的周五，切周时同步更新
+const newDue = ref(getFridayOfWeek(weekInfo.value))
+watch(weekInfo, (info) => {
+  newDue.value = getFridayOfWeek(info)
+})
 
 function addTask() {
   if (!newTitle.value.trim()) return
@@ -55,7 +69,8 @@ function addTask() {
   })
   newTitle.value = ''
   newProjectId.value = ''
-  newDue.value = ''
+  // 创建后重置为当前显示周的周五
+  newDue.value = getFridayOfWeek(weekInfo.value)
   showInputOptions.value = false
 }
 
@@ -122,6 +137,17 @@ function fmtTime(iso) {
   if (!iso) return ''
   const d = new Date(iso)
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function fmtDue(dateStr) {
+  if (!dateStr) return ''
+  const [, m, d] = dateStr.split('-')
+  return `${+m}/${+d}`
+}
+
+function taskTimeLabel(task) {
+  if (task.status === 'done') return fmtTime(task.completed_at)
+  return fmtDue(task.due)
 }
 </script>
 
@@ -208,7 +234,7 @@ function fmtTime(iso) {
           </div>
           <div class="flex-center gap-8">
             <span v-if="task.project" class="tag">{{ task.project }}</span>
-            <span class="text-xs text-secondary">{{ fmtTime(task.updated_at) }}</span>
+            <span class="text-xs text-secondary">{{ taskTimeLabel(task) }}</span>
           </div>
         </div>
 
