@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useProjectsStore } from '../stores/projects.js'
 import { useTasksStore } from '../stores/tasks.js'
 import { useMaterialsStore } from '../stores/materials.js'
@@ -10,10 +10,12 @@ import AutoTextarea from '../components/shared/AutoTextarea.vue'
 import RichEditor from '../components/shared/RichEditor.vue'
 import { organizeProgress } from '../ai/organizeService.js'
 import { extractTextFromFile, textToPreviewHtml } from '../utils/fileExtractor.js'
+import { useAuthStore } from '../stores/auth.js'
 
 const projectsStore = useProjectsStore()
 const tasksStore = useTasksStore()
 const materialsStore = useMaterialsStore()
+const authStore = useAuthStore()
 
 // -- Project status config --
 const projectStatusLabels = { active: '进行中', done: '已完成', paused: '暂停' }
@@ -22,6 +24,23 @@ const projectStatusColors = { active: 'var(--color-primary)', done: 'var(--color
 // -- Selection --
 const selectedId = ref(projectsStore.items[0]?.id || null)
 const current = computed(() => projectsStore.getById(selectedId.value))
+
+// 若组件挂载时 items 为空（HMR 状态丢失或云端延迟），补救性重新拉取
+onMounted(async () => {
+  if (projectsStore.items.length === 0 && authStore.user) {
+    await projectsStore.initFromCloud(authStore.user.id)
+    if (!selectedId.value && projectsStore.items.length > 0) {
+      selectedId.value = projectsStore.items[0].id
+    }
+  }
+})
+
+// items 变化时自动修正 selectedId（防止 HMR 后 selectedId 失效）
+watch(() => projectsStore.items, (items) => {
+  if (!selectedId.value && items.length > 0) {
+    selectedId.value = items[0].id
+  }
+}, { immediate: false })
 
 // -- Related tasks --
 const relatedTasks = computed(() => {

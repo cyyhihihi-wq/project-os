@@ -38,7 +38,7 @@ export const useTasksStore = defineStore('tasks', {
       const task = {
         id: crypto.randomUUID(),
         title: data.title,
-        status: 'todo',
+        status: 'doing',
         project: data.project || '',
         project_id: data.project_id || null,
         note: '',

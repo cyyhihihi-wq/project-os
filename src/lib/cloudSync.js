@@ -23,7 +23,16 @@ function getUserId() {
 }
 
 function handleError(table, op, err) {
-  console.error(`[cloud] ${table} ${op} failed:`, err)
+  if (err && typeof err === 'object') {
+    console.error(`[cloud] ${table} ${op} failed:`, {
+      message: err.message,
+      code: err.code,
+      details: err.details,
+      hint: err.hint,
+    })
+  } else {
+    console.error(`[cloud] ${table} ${op} failed:`, err)
+  }
   syncStatus.error = SYNC_ERROR_MSG
 }
 
@@ -34,8 +43,12 @@ function handleError(table, op, err) {
 export async function syncCreate(table, data) {
   const userId = getUserId()
   if (!userId) return
-  const { error } = await supabase.from(table).insert({ ...data, user_id: userId })
-  if (error) handleError(table, 'insert', error)
+  const payload = { ...data, user_id: userId }
+  const { error } = await supabase.from(table).insert(payload)
+  if (error) {
+    console.error(`[cloud] ${table} insert failed — payload:`, JSON.stringify(payload, null, 2))
+    handleError(table, 'insert', error)
+  }
 }
 
 /**
