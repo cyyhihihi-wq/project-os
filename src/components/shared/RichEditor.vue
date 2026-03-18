@@ -3,10 +3,9 @@ import { watch, onBeforeUnmount } from 'vue'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Highlight from '@tiptap/extension-highlight'
-import Table from '@tiptap/extension-table'
-import TableRow from '@tiptap/extension-table-row'
-import TableCell from '@tiptap/extension-table-cell'
-import TableHeader from '@tiptap/extension-table-header'
+import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table'
+import { TaskList } from '@tiptap/extension-task-list'
+import { TaskItem } from '@tiptap/extension-task-item'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -22,6 +21,8 @@ const editor = useEditor({
     TableRow,
     TableCell,
     TableHeader,
+    TaskList,
+    TaskItem.configure({ nested: true }),
   ],
   onUpdate({ editor }) {
     emit('update:modelValue', editor.getHTML())
@@ -76,6 +77,12 @@ onBeforeUnmount(() => editor.value?.destroy())
         @mousedown.prevent="editor.chain().focus().liftListItem('listItem').run()"
         title="减少缩进（Shift+Tab）"
       >←</button>
+      <span class="rich-sep" />
+      <button
+        type="button" class="rich-btn" :class="{ active: editor.isActive('taskList') }"
+        @mousedown.prevent="editor.chain().focus().toggleTaskList().run()"
+        title="待办列表"
+      >☑</button>
     </div>
     <EditorContent :editor="editor" class="rich-editor-content" />
   </div>
@@ -103,5 +110,32 @@ onBeforeUnmount(() => editor.value?.destroy())
 .rich-content th {
   background: var(--color-bg, #f5f5f5);
   font-weight: 600;
+}
+
+/* Task list (checkbox) */
+.rich-editor-content ul[data-type="taskList"],
+.rich-content ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 4px;
+}
+.rich-editor-content ul[data-type="taskList"] li,
+.rich-content ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.rich-editor-content ul[data-type="taskList"] li > label,
+.rich-content ul[data-type="taskList"] li > label {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.rich-editor-content ul[data-type="taskList"] li > div,
+.rich-content ul[data-type="taskList"] li > div {
+  flex: 1;
+}
+.rich-editor-content ul[data-type="taskList"] li[data-checked="true"] > div,
+.rich-content ul[data-type="taskList"] li[data-checked="true"] > div {
+  text-decoration: line-through;
+  opacity: 0.55;
 }
 </style>
