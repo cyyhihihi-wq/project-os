@@ -175,12 +175,8 @@ export const useProjectsStore = defineStore('projects', {
         return
       }
 
-      // 无论云端是否为空，都以云端为权威来源覆盖本地
-      if (!projects.length) {
-        this.items = []
-        this._persist()
-        return
-      }
+      // 云端无数据时保留本地数据，避免意外清空
+      if (!projects.length) return
 
       const projectIds = projects.map(p => p.id)
       const [{ data: updates }, { data: judgements }] = await Promise.all([

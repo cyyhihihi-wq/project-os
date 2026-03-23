@@ -544,7 +544,7 @@ function nowDatetimeLocal() {
               <div class="rich-content" style="max-height:300px;overflow-y:auto;padding:12px;border:1px solid var(--color-border);border-radius:var(--radius);background:var(--color-surface)" v-html="progressImportedHtml" />
             </div>
             <!-- 无导入内容时：RichEditor 手动输入 -->
-            <RichEditor v-else v-model="progressDraft" />
+            <RichEditor v-else v-model="progressDraft" :enableImagePaste="true" />
             <div class="mt-8">
               <label class="text-xs text-secondary">标签</label>
               <TagPicker v-model="progressTags" scope-type="project" :scope-id="String(selectedId)" />
@@ -611,7 +611,7 @@ function nowDatetimeLocal() {
             </div>
             <div class="mb-8">
               <label class="text-xs text-secondary">内容</label>
-              <RichEditor v-model="updateEditDraft.content" />
+              <RichEditor v-model="updateEditDraft.content" :enableImagePaste="true" />
             </div>
             <div class="mb-8">
               <label class="text-xs text-secondary">标签</label>

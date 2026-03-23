@@ -62,7 +62,8 @@ function addTask() {
     week: weekInfo.value.weekNo,
   })
   newTitle.value = ''
-  newProjectId.value = ''
+  // 重置为当前 tab 对应的项目，而不是清空
+  newProjectId.value = activeTab.value === '__none__' ? '' : activeTab.value
   newDue.value = getFridayOfWeek(weekInfo.value)
   showInputOptions.value = false
 }
@@ -79,14 +80,23 @@ function toggle(id) {
   expandedId.value = expandedId.value === id ? null : id
 }
 
-// 只有两个状态: doing <-> done
 function cycleStatus(task) {
   const next = task.status === 'done' ? 'doing' : 'done'
-  tasksStore.update(task.id, { status: next })
+  const changes = { status: next }
+  // 顺延任务完成时归属到当前周
+  if (next === 'done' && carriedTasks.value.some(t => t.id === task.id)) {
+    changes.week = weekInfo.value.weekNo
+  }
+  tasksStore.update(task.id, changes)
 }
 
 function updateTask(task, field, value) {
-  tasksStore.update(task.id, { [field]: value })
+  const changes = { [field]: value }
+  // 顺延任务完成时归属到当前周
+  if (field === 'status' && value === 'done' && carriedTasks.value.some(t => t.id === task.id)) {
+    changes.week = weekInfo.value.weekNo
+  }
+  tasksStore.update(task.id, changes)
 }
 
 function removeTask(id) {
@@ -94,13 +104,88 @@ function removeTask(id) {
   if (expandedId.value === id) expandedId.value = null
 }
 
+// -- Tab 分组 --
+
+/**
+ * 任务的规范 tab ID：
+ * 1. project_id 存在且在 store 中有效 → 用 project_id
+ * 2. project_id 无效（stale/null）但 project name 能解析到现有项目 → 用该项目 id
+ * 3. 均不匹配 → '__none__'
+ * 保证同名项目不会产生多个 tab。
+ */
+function taskTabId(task) {
+  if (task.project_id && projectsStore.getById(task.project_id)) return task.project_id
+  if (task.project) {
+    const p = projectsStore.items.find(p => p.name === task.project)
+    if (p) return p.id
+  }
+  return '__none__'
+}
+
+const projectTabs = computed(() => {
+  const seenIds = new Set()
+  const tabs = []
+  let hasNone = false
+
+  for (const t of tasks.value) {
+    const tid = taskTabId(t)
+    if (tid === '__none__') { hasNone = true; continue }
+    if (!seenIds.has(tid)) {
+      seenIds.add(tid)
+      const p = projectsStore.getById(tid)
+      if (p) tabs.push({ id: tid, name: p.name })
+    }
+  }
+
+  tabs.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
+  // 无专项排第一（固定入口）
+  if (hasNone) tabs.unshift({ id: '__none__', name: '无专项' })
+  return tabs
+})
+
+const activeTab = ref('__none__')
+
+// tabs 变化时保持 activeTab 有效
+watch(projectTabs, (tabs) => {
+  if (tabs.length > 0 && !tabs.find(t => t.id === activeTab.value)) {
+    activeTab.value = tabs[0].id
+  }
+}, { immediate: true })
+
+// activeTab 切换时同步 newProjectId（默认专项跟随当前 tab）
+watch(activeTab, (tabId) => {
+  newProjectId.value = tabId === '__none__' ? '' : tabId
+}, { immediate: true })
+
+// -- 跨周顺延（虚拟，不改数据）--
+
+/**
+ * 上一周及更早的所有未完成任务，仅在查看当前周时显示。
+ * 完成时会将 week 更新为当前周，之后自然归入本周统计。
+ */
+const carriedTasks = computed(() => {
+  if (currentWeekOffset.value !== 0) return []
+  const { monday } = weekInfo.value
+  const curYear = monday.getFullYear()
+  const curWeekNo = weekInfo.value.weekNo
+  return tasks.value.filter(t => {
+    if (t.status === 'done') return false
+    const taskYear = new Date(t.created_at).getFullYear()
+    return taskYear < curYear || (taskYear === curYear && t.week < curWeekNo)
+  })
+})
+
+const carriedSet = computed(() => new Set(carriedTasks.value.map(t => t.id)))
+
 // -- Week stats --
 const weekTasks = computed(() => {
   const weekNo = weekInfo.value.weekNo
   const year = weekInfo.value.monday.getFullYear()
-  return tasks.value.filter(t =>
+  const ownTasks = tasks.value.filter(t =>
     t.week === weekNo && new Date(t.created_at).getFullYear() === year
   )
+  // 当前周统计计入顺延任务（上周未完成的工作量）
+  return currentWeekOffset.value === 0 ? [...ownTasks, ...carriedTasks.value] : ownTasks
 })
 
 const weekDoneCount = computed(() =>
@@ -126,51 +211,24 @@ const weekProjectUpdates = computed(() => {
   return count
 })
 
-// -- Tab 分组 --
-// 构建 tab 列表：所有有任务的 project + 无专项
-const projectTabs = computed(() => {
-  const map = new Map()
-  for (const t of tasks.value) {
-    const key = t.project_id || '__none__'
-    if (!map.has(key)) {
-      if (t.project_id) {
-        const p = projectsStore.getById(t.project_id)
-        map.set(key, { id: key, name: p?.name || t.project || '无专项' })
-      } else {
-        map.set('__none__', { id: '__none__', name: '无专项' })
-      }
-    }
-  }
-  const tabs = [...map.values()]
-  // 具名专项排前，无专项排末
-  tabs.sort((a, b) => {
-    if (a.id === '__none__') return 1
-    if (b.id === '__none__') return -1
-    return a.name.localeCompare(b.name, 'zh')
-  })
-  return tabs
-})
-
-const activeTab = ref('__none__')
-// 当 tabs 变化时，确保 activeTab 有效
-watch(projectTabs, (tabs) => {
-  if (tabs.length > 0 && !tabs.find(t => t.id === activeTab.value)) {
-    activeTab.value = tabs[0].id
-  }
-}, { immediate: true })
-
-// 当前 tab 下的任务，分 active(doing) 和 done
-const tabActiveTasks = computed(() =>
-  tasks.value.filter(t => {
-    const key = t.project_id || '__none__'
-    return key === activeTab.value && t.status !== 'done'
-  })
+// -- Tab 任务列表 --
+// 当前 tab 的顺延任务（仅当前周）
+const tabCarriedTasks = computed(() =>
+  carriedTasks.value.filter(t => taskTabId(t) === activeTab.value)
 )
+
+// 当前 tab 的本周进行中任务（顺延任务单独展示，从此列表排除）
+const tabActiveTasks = computed(() =>
+  tasks.value.filter(t =>
+    taskTabId(t) === activeTab.value &&
+    t.status !== 'done' &&
+    !carriedSet.value.has(t.id)
+  )
+)
+
+// 当前 tab 已完成任务（跨所有周）
 const tabDoneTasks = computed(() =>
-  tasks.value.filter(t => {
-    const key = t.project_id || '__none__'
-    return key === activeTab.value && t.status === 'done'
-  })
+  tasks.value.filter(t => taskTabId(t) === activeTab.value && t.status === 'done')
 )
 
 const showDone = ref(false)
@@ -269,6 +327,47 @@ function taskTimeLabel(task) {
     <!-- Task list for active tab -->
     <div v-if="projectTabs.length > 0" class="section">
 
+      <!-- 顺延任务（上周未完成，仅当前周显示） -->
+      <template v-if="tabCarriedTasks.length > 0">
+        <div class="group-status-label group-carried-label">上周顺延 ({{ tabCarriedTasks.length }})</div>
+        <div v-for="task in tabCarriedTasks" :key="task.id" class="card task-card task-carried-card">
+          <div class="flex-between" @click="toggle(task.id)" style="cursor:pointer">
+            <div class="flex-center gap-8">
+              <span class="task-circle circle-doing" @click.stop="cycleStatus(task)"></span>
+              <span>{{ task.title }}</span>
+            </div>
+            <span class="text-xs text-secondary">{{ taskTimeLabel(task) }}</span>
+          </div>
+          <div v-if="expandedId === task.id" class="task-detail">
+            <div class="mb-8">
+              <label class="text-xs text-secondary">标题</label>
+              <input type="text" :value="task.title" @change="updateTask(task, 'title', $event.target.value)" />
+            </div>
+            <div class="flex gap-12 mb-8">
+              <div style="flex:1">
+                <label class="text-xs text-secondary">所属专项</label>
+                <select :value="task.project_id || ''" @change="onTaskProjectChange(task, $event.target.value)">
+                  <option value="">无</option>
+                  <option v-for="p in projectsStore.items" :key="p.id" :value="p.id">{{ p.name }}</option>
+                </select>
+              </div>
+              <div style="flex:1">
+                <label class="text-xs text-secondary">截止时间</label>
+                <input type="date" :value="task.due" @change="updateTask(task, 'due', $event.target.value)" />
+              </div>
+            </div>
+            <div class="mb-8">
+              <label class="text-xs text-secondary">执行备注 & 子步骤</label>
+              <RichEditor :modelValue="task.note" @update:modelValue="updateTask(task, 'note', $event)" />
+            </div>
+            <div class="flex gap-8">
+              <button class="small primary" @click="updateTask(task, 'status', 'done')">标为完成（归入本周）</button>
+              <button class="small" style="color:var(--color-danger);margin-left:auto" @click="removeTask(task.id)">删除</button>
+            </div>
+          </div>
+        </div>
+      </template>
+
       <!-- Doing tasks -->
       <template v-if="tabActiveTasks.length > 0">
         <div class="group-status-label">进行中 ({{ tabActiveTasks.length }})</div>
@@ -363,7 +462,11 @@ function taskTimeLabel(task) {
         </template>
       </template>
 
-      <div v-if="tabActiveTasks.length === 0 && tabDoneTasks.length === 0" class="text-secondary text-sm" style="padding:16px 0;text-align:center">
+      <div
+        v-if="tabActiveTasks.length === 0 && tabDoneTasks.length === 0 && tabCarriedTasks.length === 0"
+        class="text-secondary text-sm"
+        style="padding:16px 0;text-align:center"
+      >
         暂无任务
       </div>
     </div>
@@ -434,7 +537,7 @@ function taskTimeLabel(task) {
   color: #fff;
 }
 
-/* Status label */
+/* Status labels */
 .group-status-label {
   font-size: 11px;
   font-weight: 600;
@@ -446,12 +549,19 @@ function taskTimeLabel(task) {
 .group-done-label {
   color: var(--color-success, #388e3c);
 }
+.group-carried-label {
+  color: var(--color-warning, #d97706);
+}
 
 /* Task cards */
 .task-card { cursor: pointer; }
 .task-done-card {
   background: #f8fdf8;
   border-color: #d4ecd4;
+}
+.task-carried-card {
+  background: #fffbf0;
+  border-color: #fde68a;
 }
 .task-detail {
   margin-top: 12px;
