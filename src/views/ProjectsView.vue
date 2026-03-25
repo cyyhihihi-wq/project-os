@@ -154,7 +154,55 @@ function deleteJudgement(id) {
 }
 
 // -- Progress timeline --
-const updates = computed(() => projectsStore.getUpdates(selectedId.value))
+
+// ISO week key helper: 'YYYY-WN'
+function getWeekKey(iso) {
+  const d = new Date(iso)
+  const day = d.getDay()
+  const monday = new Date(d)
+  monday.setDate(d.getDate() - day + (day === 0 ? -6 : 1))
+  monday.setHours(0, 0, 0, 0)
+  const yearStart = new Date(monday.getFullYear(), 0, 1)
+  const weekNo = Math.ceil(((monday - yearStart) / 86400000 + yearStart.getDay() + 1) / 7)
+  return `${monday.getFullYear()}-W${weekNo}`
+}
+
+// Human-readable week label: 'Week 13  (3/23–3/29)'
+function getWeekLabel(iso) {
+  const d = new Date(iso)
+  const day = d.getDay()
+  const monday = new Date(d)
+  monday.setDate(d.getDate() - day + (day === 0 ? -6 : 1))
+  monday.setHours(0, 0, 0, 0)
+  const sunday = new Date(monday)
+  sunday.setDate(monday.getDate() + 6)
+  const yearStart = new Date(monday.getFullYear(), 0, 1)
+  const weekNo = Math.ceil(((monday - yearStart) / 86400000 + yearStart.getDay() + 1) / 7)
+  const fmt = x => `${x.getMonth() + 1}/${x.getDate()}`
+  return `Week ${weekNo}  (${fmt(monday)}–${fmt(sunday)})`
+}
+
+// 按 created_at 降序排列
+const sortedUpdates = computed(() =>
+  [...projectsStore.getUpdates(selectedId.value)].sort(
+    (a, b) => new Date(b.created_at) - new Date(a.created_at)
+  )
+)
+
+// 插入 week-header 分割节点的展开列表
+const timelineItems = computed(() => {
+  const items = []
+  let lastWeekKey = null
+  for (const u of sortedUpdates.value) {
+    const wk = getWeekKey(u.created_at)
+    if (wk !== lastWeekKey) {
+      items.push({ type: 'week-header', weekKey: wk, label: getWeekLabel(u.created_at) })
+      lastWeekKey = wk
+    }
+    items.push({ type: 'update', data: u })
+  }
+  return items
+})
 
 // Expand/collapse per entry; default first entry open
 const expandedUpdateId = ref(null)
@@ -333,7 +381,7 @@ watch(selectedId, () => {
   editingJudgement.value = false
   editingJudgementId.value = null
   editingUpdateId.value = null
-  expandedUpdateId.value = updates.value[0]?.id ?? null
+  expandedUpdateId.value = sortedUpdates.value[0]?.id ?? null
   showJudgementHistory.value = false
   showDoneRelatedTasks.value = false
   openMenuId.value = null
@@ -599,81 +647,91 @@ function nowDatetimeLocal() {
         </div>
 
         <!-- Timeline entries -->
-        <div
-          v-for="u in updates" :key="u.id" class="mt-12 update-entry"
-          :class="{ 'update-highlight': u.highlight }"
-        >
-          <!-- Edit mode -->
-          <div v-if="editingUpdateId === u.id">
-            <div class="mb-8">
-              <label class="text-xs text-secondary">标题</label>
-              <input type="text" v-model="updateEditDraft.title" />
-            </div>
-            <div class="mb-8">
-              <label class="text-xs text-secondary">内容</label>
-              <RichEditor v-model="updateEditDraft.content" :enableImagePaste="true" />
-            </div>
-            <div class="mb-8">
-              <label class="text-xs text-secondary">标签</label>
-              <TagPicker v-model="updateEditDraft.tags" scope-type="project" :scope-id="String(selectedId)" />
-            </div>
-            <div class="flex-center gap-8 mb-8">
-              <label class="flex-center gap-4" style="cursor:pointer;font-size:13px">
-                <input type="checkbox" v-model="updateEditDraft.highlight" style="cursor:pointer" />
-                ⭐ 核心进展
-              </label>
-            </div>
-            <div v-if="editUpdateError" class="text-xs mb-8" style="color:var(--color-danger)">{{ editUpdateError }}</div>
-            <div class="flex gap-8" style="align-items:center">
-              <label class="text-xs text-secondary" style="flex-shrink:0">记录时间</label>
-              <input type="datetime-local" v-model="updateEditDraftTime" style="width:auto;flex:1;font-size:12px" />
-              <button class="small" @click="editingUpdateId = null; editUpdateError = ''" :disabled="editUpdateLoading">取消</button>
-              <button class="small" @click="saveUpdateEdit" :disabled="editUpdateLoading">保存</button>
-              <button class="small primary" @click="saveUpdateEditWithAI" :disabled="editUpdateLoading">
-                {{ editUpdateLoading ? 'AI 整理中...' : 'AI 整理后保存' }}
-              </button>
-            </div>
+        <template v-for="item in timelineItems" :key="item.type === 'week-header' ? item.weekKey : item.data.id">
+
+          <!-- Week divider -->
+          <div v-if="item.type === 'week-header'" class="week-divider">
+            <span class="week-divider-label">—— {{ item.label }} ——</span>
           </div>
-          <!-- Read mode (collapsed/expanded) -->
-          <div v-else>
-            <div class="flex-between" style="cursor:pointer" @click="toggleExpand(u.id)">
-              <div>
-                <span v-if="u.highlight" style="margin-right:4px">⭐</span>
-                <strong class="text-sm">{{ u.title }}</strong>
-                <span class="text-xs text-secondary" style="margin-left:8px">{{ fmtTime(u.created_at) }}</span>
+
+          <!-- Update card (layout unchanged) -->
+          <div
+            v-else
+            class="mt-12 update-entry"
+            :class="{ 'update-highlight': item.data.highlight }"
+          >
+            <!-- Edit mode -->
+            <div v-if="editingUpdateId === item.data.id">
+              <div class="mb-8">
+                <label class="text-xs text-secondary">标题</label>
+                <input type="text" v-model="updateEditDraft.title" />
               </div>
+              <div class="mb-8">
+                <label class="text-xs text-secondary">内容</label>
+                <RichEditor v-model="updateEditDraft.content" :enableImagePaste="true" />
+              </div>
+              <div class="mb-8">
+                <label class="text-xs text-secondary">标签</label>
+                <TagPicker v-model="updateEditDraft.tags" scope-type="project" :scope-id="String(selectedId)" />
+              </div>
+              <div class="flex-center gap-8 mb-8">
+                <label class="flex-center gap-4" style="cursor:pointer;font-size:13px">
+                  <input type="checkbox" v-model="updateEditDraft.highlight" style="cursor:pointer" />
+                  ⭐ 核心进展
+                </label>
+              </div>
+              <div v-if="editUpdateError" class="text-xs mb-8" style="color:var(--color-danger)">{{ editUpdateError }}</div>
               <div class="flex gap-8" style="align-items:center">
-                <span v-for="tag in u.tags" :key="tag" class="tag">{{ tag }}</span>
-                <!-- ⋯ more menu -->
-                <div style="position:relative">
-                  <button
-                    class="small"
-                    style="padding:2px 7px;font-size:15px;line-height:1"
-                    @click.stop="openMenuId = openMenuId === u.id ? null : u.id"
-                  >⋯</button>
-                  <div
-                    v-if="openMenuId === u.id"
-                    style="position:absolute;right:0;top:calc(100% + 4px);background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius);z-index:10;min-width:80px;padding:4px 0;box-shadow:0 2px 8px rgba(0,0,0,.08)"
-                  >
+                <label class="text-xs text-secondary" style="flex-shrink:0">记录时间</label>
+                <input type="datetime-local" v-model="updateEditDraftTime" style="width:auto;flex:1;font-size:12px" />
+                <button class="small" @click="editingUpdateId = null; editUpdateError = ''" :disabled="editUpdateLoading">取消</button>
+                <button class="small" @click="saveUpdateEdit" :disabled="editUpdateLoading">保存</button>
+                <button class="small primary" @click="saveUpdateEditWithAI" :disabled="editUpdateLoading">
+                  {{ editUpdateLoading ? 'AI 整理中...' : 'AI 整理后保存' }}
+                </button>
+              </div>
+            </div>
+            <!-- Read mode (collapsed/expanded) -->
+            <div v-else>
+              <div class="flex-between" style="cursor:pointer" @click="toggleExpand(item.data.id)">
+                <div>
+                  <span v-if="item.data.highlight" style="margin-right:4px">⭐</span>
+                  <strong class="text-sm">{{ item.data.title }}</strong>
+                  <span class="text-xs text-secondary" style="margin-left:8px">{{ fmtTime(item.data.created_at) }}</span>
+                </div>
+                <div class="flex gap-8" style="align-items:center">
+                  <span v-for="tag in item.data.tags" :key="tag" class="tag">{{ tag }}</span>
+                  <!-- ⋯ more menu -->
+                  <div style="position:relative">
                     <button
                       class="small"
-                      style="display:block;width:100%;text-align:left;padding:6px 14px;border:none;border-radius:0;background:transparent"
-                      @click.stop="startEditUpdate(u); openMenuId = null"
-                    >编辑</button>
-                    <button
-                      class="small"
-                      style="display:block;width:100%;text-align:left;padding:6px 14px;border:none;border-radius:0;background:transparent;color:var(--color-danger)"
-                      @click.stop="deleteUpdate(u.id); openMenuId = null"
-                    >删除</button>
+                      style="padding:2px 7px;font-size:15px;line-height:1"
+                      @click.stop="openMenuId = openMenuId === item.data.id ? null : item.data.id"
+                    >⋯</button>
+                    <div
+                      v-if="openMenuId === item.data.id"
+                      style="position:absolute;right:0;top:calc(100% + 4px);background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius);z-index:10;min-width:80px;padding:4px 0;box-shadow:0 2px 8px rgba(0,0,0,.08)"
+                    >
+                      <button
+                        class="small"
+                        style="display:block;width:100%;text-align:left;padding:6px 14px;border:none;border-radius:0;background:transparent"
+                        @click.stop="startEditUpdate(item.data); openMenuId = null"
+                      >编辑</button>
+                      <button
+                        class="small"
+                        style="display:block;width:100%;text-align:left;padding:6px 14px;border:none;border-radius:0;background:transparent;color:var(--color-danger)"
+                        @click.stop="deleteUpdate(item.data.id); openMenuId = null"
+                      >删除</button>
+                    </div>
                   </div>
                 </div>
               </div>
+              <div v-if="expandedUpdateId === item.data.id" class="mt-8 rich-content" v-html="item.data.content" />
             </div>
-            <div v-if="expandedUpdateId === u.id" class="mt-8 rich-content" v-html="u.content" />
           </div>
-        </div>
+        </template>
 
-        <div v-if="updates.length === 0" class="text-sm text-secondary mt-12">暂无进展记录</div>
+        <div v-if="sortedUpdates.length === 0" class="text-sm text-secondary mt-12">暂无进展记录</div>
       </div>
 
       <!-- Related Tasks -->
@@ -748,6 +806,29 @@ function nowDatetimeLocal() {
 .projects-right {
   flex: 1;
   min-width: 0;
+}
+
+/* Week divider */
+.week-divider {
+  margin-top: 20px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.week-divider::before,
+.week-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+.week-divider-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #3b82f6;
+  white-space: nowrap;
+  letter-spacing: 0.3px;
 }
 
 .update-entry {

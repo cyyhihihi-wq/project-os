@@ -178,6 +178,17 @@ export const useProjectsStore = defineStore('projects', {
       // 云端无数据时保留本地数据，避免意外清空
       if (!projects.length) return
 
+      // 保存本地 updates 的 tags/highlight（云端 schema 未含这两列，不能丢）
+      const localUpdateExtras = {}
+      for (const p of this.items) {
+        for (const u of (p.updates || [])) {
+          localUpdateExtras[u.id] = {
+            tags: u.tags ?? [],
+            highlight: u.highlight ?? false,
+          }
+        }
+      }
+
       const projectIds = projects.map(p => p.id)
       const [{ data: updates }, { data: judgements }] = await Promise.all([
         supabase.from('project_updates').select('*').in('project_id', projectIds),
@@ -188,7 +199,13 @@ export const useProjectsStore = defineStore('projects', {
         ...p,
         updates: (updates || [])
           .filter(u => u.project_id === p.id)
-          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
+          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+          .map(u => ({
+            ...u,
+            // 从本地恢复 tags/highlight，云端无此字段则降级为空值
+            tags: localUpdateExtras[u.id]?.tags ?? [],
+            highlight: localUpdateExtras[u.id]?.highlight ?? false,
+          })),
         judgements: (judgements || [])
           .filter(j => j.project_id === p.id)
           .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
