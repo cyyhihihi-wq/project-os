@@ -34,6 +34,19 @@ const weekKey = computed(() => {
 // -- Tasks --
 const tasks = computed(() => tasksStore.items)
 
+// 今天的日期字符串 YYYY-MM-DD，用于今日处理判断
+const todayStr = computed(() => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+})
+
+// 只在查看本周时判断"今日处理"，历史周不显示此标签
+function isDueToday(task) {
+  return currentWeekOffset.value === 0 &&
+    task.status !== 'done' &&
+    task.due === todayStr.value
+}
+
 // -- Input --
 const newTitle = ref('')
 const newProjectId = ref('')
@@ -160,7 +173,9 @@ watch(activeTab, (tabId) => {
 // -- 跨周顺延（虚拟，不改数据）--
 
 /**
- * 上一周及更早的所有未完成任务，仅在查看当前周时显示。
+ * 上一周及更早的未完成任务，仅在查看当前周时显示（顺延）。
+ * 条件：week < 当前周 且 status !== done。
+ * due 只是时间提示，不影响任务归属于哪个周面板。
  * 完成时会将 week 更新为当前周，之后自然归入本周统计。
  */
 const carriedTasks = computed(() => {
@@ -211,25 +226,54 @@ const weekProjectUpdates = computed(() => {
   return count
 })
 
+// 通用排序：今日处理排最前，其余按 due 升序，无 due 排最后
+function sortByDueToday(list) {
+  const today = todayStr.value
+  return [...list].sort((a, b) => {
+    const aToday = a.due === today ? 0 : 1
+    const bToday = b.due === today ? 0 : 1
+    if (aToday !== bToday) return aToday - bToday
+    if (!a.due && !b.due) return 0
+    if (!a.due) return 1
+    if (!b.due) return -1
+    return a.due.localeCompare(b.due)
+  })
+}
+
 // -- Tab 任务列表 --
-// 当前 tab 的顺延任务（仅当前周）
+// 当前 tab 的顺延任务（仅当前周，今日处理排最前）
 const tabCarriedTasks = computed(() =>
-  carriedTasks.value.filter(t => taskTabId(t) === activeTab.value)
+  sortByDueToday(carriedTasks.value.filter(t => taskTabId(t) === activeTab.value))
 )
 
-// 当前 tab 的本周进行中任务（顺延任务单独展示，从此列表排除）
-const tabActiveTasks = computed(() =>
-  tasks.value.filter(t =>
+// 当前 tab 的本周进行中任务
+// - 严格过滤 week === 当前视图周，避免跨周串台
+// - 顺延任务单独展示，从此列表排除
+// - 今日处理排最前
+const tabActiveTasks = computed(() => {
+  const weekNo = weekInfo.value.weekNo
+  const year = weekInfo.value.monday.getFullYear()
+  const list = tasks.value.filter(t =>
     taskTabId(t) === activeTab.value &&
     t.status !== 'done' &&
+    t.week === weekNo &&
+    new Date(t.created_at).getFullYear() === year &&
     !carriedSet.value.has(t.id)
   )
-)
+  return sortByDueToday(list)
+})
 
-// 当前 tab 已完成任务（跨所有周）
-const tabDoneTasks = computed(() =>
-  tasks.value.filter(t => taskTabId(t) === activeTab.value && t.status === 'done')
-)
+// 当前 tab 本周已完成任务（仅当前视图周，不跨周）
+const tabDoneTasks = computed(() => {
+  const weekNo = weekInfo.value.weekNo
+  const year = weekInfo.value.monday.getFullYear()
+  return tasks.value.filter(t =>
+    taskTabId(t) === activeTab.value &&
+    t.status === 'done' &&
+    t.week === weekNo &&
+    new Date(t.created_at).getFullYear() === year
+  )
+})
 
 const showDone = ref(false)
 
@@ -327,14 +371,20 @@ function taskTimeLabel(task) {
     <!-- Task list for active tab -->
     <div v-if="projectTabs.length > 0" class="section">
 
-      <!-- 顺延任务（上周未完成，仅当前周显示） -->
+      <!-- 顺延任务（真正超期未完成，仅当前周显示） -->
       <template v-if="tabCarriedTasks.length > 0">
         <div class="group-status-label group-carried-label">上周顺延 ({{ tabCarriedTasks.length }})</div>
-        <div v-for="task in tabCarriedTasks" :key="task.id" class="card task-card task-carried-card">
+        <div
+          v-for="task in tabCarriedTasks"
+          :key="task.id"
+          class="card task-card task-carried-card"
+          :class="{ 'task-due-today-card': isDueToday(task) }"
+        >
           <div class="flex-between" @click="toggle(task.id)" style="cursor:pointer">
             <div class="flex-center gap-8">
               <span class="task-circle circle-doing" @click.stop="cycleStatus(task)"></span>
               <span>{{ task.title }}</span>
+              <span v-if="isDueToday(task)" class="badge-today">今日处理</span>
             </div>
             <span class="text-xs text-secondary">{{ taskTimeLabel(task) }}</span>
           </div>
@@ -371,7 +421,12 @@ function taskTimeLabel(task) {
       <!-- Doing tasks -->
       <template v-if="tabActiveTasks.length > 0">
         <div class="group-status-label">进行中 ({{ tabActiveTasks.length }})</div>
-        <div v-for="task in tabActiveTasks" :key="task.id" class="card task-card">
+        <div
+          v-for="task in tabActiveTasks"
+          :key="task.id"
+          class="card task-card"
+          :class="{ 'task-due-today-card': isDueToday(task) }"
+        >
           <div class="flex-between" @click="toggle(task.id)" style="cursor:pointer">
             <div class="flex-center gap-8">
               <span
@@ -379,6 +434,7 @@ function taskTimeLabel(task) {
                 @click.stop="cycleStatus(task)"
               ></span>
               <span>{{ task.title }}</span>
+              <span v-if="isDueToday(task)" class="badge-today">今日处理</span>
             </div>
             <span class="text-xs text-secondary">{{ taskTimeLabel(task) }}</span>
           </div>
@@ -567,6 +623,23 @@ function taskTimeLabel(task) {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--color-border);
+}
+
+/* Today due badge */
+.badge-today {
+  font-size: 10px;
+  font-weight: 600;
+  color: #1d4ed8;
+  background: #dbeafe;
+  border-radius: 4px;
+  padding: 1px 6px;
+  letter-spacing: 0.3px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.task-due-today-card {
+  border-color: #93c5fd !important;
+  background: #f0f7ff !important;
 }
 
 /* Status circles */
