@@ -1,8 +1,9 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useTasksStore } from '../stores/tasks.js'
 import { useProjectsStore } from '../stores/projects.js'
 import RichEditor from '../components/shared/RichEditor.vue'
+import { generateWeekSummary } from '../ai/organizeService.js'
 
 const tasksStore = useTasksStore()
 const projectsStore = useProjectsStore()
@@ -277,12 +278,84 @@ const tabDoneTasks = computed(() => {
 
 const showDone = ref(false)
 
-// -- Week review --
-const weekReview = ref('')
-watch(weekKey, (key) => { weekReview.value = tasksStore.getWeekReview(key) }, { immediate: true })
-function onWeekReviewChange(val) {
-  weekReview.value = val
-  tasksStore.saveWeekReview(weekKey.value, val)
+// -- 本周工作总结 --
+const weekSummary = ref({ work: '', feeling: '', status: 'draft' })
+const summaryWorkRef = ref(null)
+const summaryFeelingRef = ref(null)
+
+watch(weekKey, (key) => {
+  weekSummary.value = tasksStore.getWeekReview(key)
+  nextTick(() => {
+    resizeSummaryTextarea(summaryWorkRef.value)
+    resizeSummaryTextarea(summaryFeelingRef.value)
+  })
+}, { immediate: true })
+
+function resizeSummaryTextarea(el) {
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = el.scrollHeight + 'px'
+}
+
+function saveWeekSummary() {
+  tasksStore.saveWeekReview(weekKey.value, { ...weekSummary.value })
+}
+function onSummaryWorkInput(e) {
+  resizeSummaryTextarea(e.target)
+  weekSummary.value = { ...weekSummary.value, work: e.target.value }
+  saveWeekSummary()
+}
+function onSummaryFeelingInput(e) {
+  resizeSummaryTextarea(e.target)
+  weekSummary.value = { ...weekSummary.value, feeling: e.target.value }
+  saveWeekSummary()
+}
+function completeWeekSummary() {
+  weekSummary.value = { ...weekSummary.value, status: 'completed' }
+  saveWeekSummary()
+}
+function reopenWeekSummary() {
+  weekSummary.value = { ...weekSummary.value, status: 'draft' }
+  saveWeekSummary()
+}
+
+const summaryLoading = ref(false)
+const summaryError = ref('')
+
+async function genWeekSummary() {
+  summaryLoading.value = true
+  summaryError.value = ''
+  try {
+    // 本周专项进展
+    const { monday, sunday } = weekInfo.value
+    const endOfSunday = new Date(sunday)
+    endOfSunday.setHours(23, 59, 59, 999)
+    const projectUpdates = []
+    for (const p of projectsStore.items) {
+      for (const u of (p.updates || [])) {
+        const d = new Date(u.created_at)
+        if (d >= monday && d <= endOfSunday) {
+          projectUpdates.push({ ...u, projectName: p.name })
+        }
+      }
+    }
+    // 本周已完成任务
+    const weekNo = weekInfo.value.weekNo
+    const year = weekInfo.value.monday.getFullYear()
+    const completedTasks = tasks.value.filter(t =>
+      t.status === 'done' &&
+      t.week === weekNo &&
+      new Date(t.created_at).getFullYear() === year
+    )
+    const workText = await generateWeekSummary({ projectUpdates, completedTasks })
+    weekSummary.value = { ...weekSummary.value, work: workText }
+    saveWeekSummary()
+    nextTick(() => resizeSummaryTextarea(summaryWorkRef.value))
+  } catch (err) {
+    summaryError.value = err.message || 'AI 生成失败，请重试'
+  } finally {
+    summaryLoading.value = false
+  }
 }
 
 // -- Format --
@@ -531,10 +604,60 @@ function taskTimeLabel(task) {
       暂无任务，请在上方输入框创建
     </div>
 
-    <!-- Week Review -->
-    <div class="card section" style="margin-top:24px">
-      <div class="card-title">周回顾</div>
-      <RichEditor :modelValue="weekReview" @update:modelValue="onWeekReviewChange" />
+    <!-- 本周工作总结 -->
+    <div
+      class="card section summary-card"
+      :class="{ 'summary-completed-card': weekSummary.status === 'completed' }"
+      style="margin-top:24px"
+    >
+      <!-- 标题行 -->
+      <div class="flex-between mb-10">
+        <div class="card-title" style="margin:0">
+          <span v-if="weekSummary.status === 'completed'">本周总结已完成！真棒！</span>
+          <span v-else>本周工作总结</span>
+        </div>
+        <div class="flex gap-8">
+          <button class="small" @click="genWeekSummary" :disabled="summaryLoading">
+            {{ summaryLoading ? 'AI 生成中...' : '生成本周工作总结' }}
+          </button>
+          <button
+            v-if="weekSummary.status !== 'completed'"
+            class="small primary"
+            @click="completeWeekSummary"
+          >完成本周总结</button>
+          <button v-else class="small" @click="reopenWeekSummary">重新编辑</button>
+        </div>
+      </div>
+
+      <div v-if="summaryError" class="text-xs mb-8" style="color:var(--color-danger);background:#fff0f0;border:1px solid var(--color-danger);border-radius:4px;padding:6px 10px">{{ summaryError }}</div>
+
+      <!-- 工作区 -->
+      <div class="summary-row">
+        <span class="summary-label">工作</span>
+        <textarea
+          ref="summaryWorkRef"
+          class="summary-textarea"
+          rows="3"
+          placeholder="点击「生成本周工作总结」或直接编辑..."
+          :value="weekSummary.work"
+          @input="onSummaryWorkInput"
+        />
+      </div>
+
+      <div class="summary-sep"></div>
+
+      <!-- 感受区 -->
+      <div class="summary-row">
+        <span class="summary-label">感受</span>
+        <textarea
+          ref="summaryFeelingRef"
+          class="summary-textarea"
+          rows="2"
+          placeholder="这周感受如何..."
+          :value="weekSummary.feeling"
+          @input="onSummaryFeelingInput"
+        />
+      </div>
     </div>
 
   </div>
@@ -623,6 +746,52 @@ function taskTimeLabel(task) {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--color-border);
+}
+
+/* 本周工作总结卡片 */
+.summary-completed-card {
+  background: #FFF7CC !important;
+  border-color: #E6C800 !important;
+}
+.summary-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.summary-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-secondary, #888);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding-top: 6px;
+  flex-shrink: 0;
+  width: 28px;
+}
+.summary-textarea {
+  flex: 1;
+  resize: none;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  line-height: 1.7;
+  padding: 4px 0;
+  color: var(--color-text);
+  font-family: inherit;
+  overflow: hidden;
+  outline: none;
+  min-height: 0;
+}
+.summary-textarea:focus {
+  outline: none;
+}
+.summary-textarea::placeholder {
+  color: var(--color-secondary, #aaa);
+}
+.summary-sep {
+  height: 1px;
+  background: var(--color-border);
+  margin: 8px 0;
 }
 
 /* Today due badge */

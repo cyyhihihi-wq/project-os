@@ -12,6 +12,54 @@
 import { callDeepSeek } from './deepseekClient.js'
 
 // ---------------------------------------------------------------------------
+// 周工作总结 System Prompt
+// ---------------------------------------------------------------------------
+
+const WEEK_SUMMARY_SYSTEM_PROMPT = `请根据本周项目进展和任务记录，总结本周工作。
+
+信息结构说明：
+
+我的工作记录分为三层结构：
+
+1）专项（Project）
+长期推进的工作主题，例如「B站自然流」「B站周边业务支持」。
+
+2）事项（Event）
+专项下的阶段性推进，例如「BW合作沟通」「cpvv接入进展」。
+
+3）任务（Task）
+具体执行动作，例如「与B站沟通」「完成数据分析」。
+
+生成周报时：
+- 优先识别专项
+- 同一专项下的事项合并总结
+- 任务只用于理解，不需要写出
+
+
+总结规则：
+
+1 项目进展优先级最高
+2 同一专项的事项合并总结
+3 不要按时间流水账
+4 优先总结阶段成果
+5 如果没有明确成果，可总结为阶段推进
+6 不要出现任务细节或执行动作
+
+
+输出限制：
+
+1 每条总结控制在20-30字
+2 不要复述时间线
+3 不要输出任务细节
+4 不要写"沟通 / 跟进 / 推进"等执行词
+
+
+输出格式（只输出以下内容，不要添加任何其他说明）：
+
+1. 事项名：一句话总结阶段成果
+2. 事项名：一句话总结阶段成果`
+
+// ---------------------------------------------------------------------------
 // System Prompt — Organize
 // ---------------------------------------------------------------------------
 
@@ -111,6 +159,37 @@ ${plain}
 }`
 
   return callOrganize(userPrompt)
+}
+
+/**
+ * 生成本周工作总结（Tasks 页"本周工作总结"模块调用）
+ *
+ * @param {Array} projectUpdates - 本周的专项进展，每条含 { projectName, title, content }
+ * @param {Array} completedTasks - 本周已完成任务，每条含 { title, project }
+ * @returns {Promise<string>} HTML 格式的工作总结（直接写入 RichEditor）
+ */
+export async function generateWeekSummary({ projectUpdates, completedTasks }) {
+  const updatesText = projectUpdates.length
+    ? projectUpdates.map(u =>
+        `【${u.projectName}】${u.title}：${stripHtml(u.content)}`
+      ).join('\n')
+    : '（本周无专项进展记录）'
+
+  const tasksText = completedTasks.length
+    ? completedTasks.map(t =>
+        `- ${t.title}${t.project ? `（${t.project}）` : ''}`
+      ).join('\n')
+    : '（本周无已完成任务）'
+
+  const userPrompt = `本周项目进展：\n${updatesText}\n\n本周完成任务：\n${tasksText}`
+
+  const messages = [
+    { role: 'system', content: WEEK_SUMMARY_SYSTEM_PROMPT },
+    { role: 'user',   content: userPrompt },
+  ]
+
+  const raw = await callDeepSeek(messages)
+  return raw.trim()
 }
 
 /**

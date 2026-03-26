@@ -77,15 +77,19 @@ export const useTasksStore = defineStore('tasks', {
       syncDelete('tasks', id)
     },
 
-    saveWeekReview(weekKey, content) {
-      this.weekReviews[weekKey] = content
+    saveWeekReview(weekKey, data) {
+      this.weekReviews[weekKey] = data
       persistReviews(this.weekReviews)
-      // 先查再写，不依赖 UNIQUE(user_id, week_label) DB 约束
-      syncWeekReview(weekKey, content)
+      // 云端 content 字段存 JSON 字符串以兼容旧 schema
+      syncWeekReview(weekKey, JSON.stringify(data))
     },
 
     getWeekReview(weekKey) {
-      return this.weekReviews[weekKey] || ''
+      const stored = this.weekReviews[weekKey]
+      if (!stored) return { work: '', feeling: '', status: 'draft' }
+      // 向下兼容旧版纯字符串格式
+      if (typeof stored === 'string') return { work: stored, feeling: '', status: 'draft' }
+      return { work: '', feeling: '', status: 'draft', ...stored }
     },
 
     // -- 云端只读初始化（Step 3）--
@@ -115,7 +119,21 @@ export const useTasksStore = defineStore('tasks', {
         console.error('[cloud] week_reviews fetch error:', rErr.message)
       } else {
         const reviewMap = {}
-        reviews.forEach(r => { reviewMap[r.week_label] = r.content })
+        reviews.forEach(r => {
+          if (!r.content) {
+            reviewMap[r.week_label] = { work: '', feeling: '', status: 'draft' }
+            return
+          }
+          try {
+            const parsed = JSON.parse(r.content)
+            reviewMap[r.week_label] = typeof parsed === 'object'
+              ? parsed
+              : { work: r.content, feeling: '', status: 'draft' }
+          } catch {
+            // 旧版纯字符串内容，迁移为新格式
+            reviewMap[r.week_label] = { work: r.content, feeling: '', status: 'draft' }
+          }
+        })
         this.weekReviews = reviewMap
         persistReviews(reviewMap)
       }
