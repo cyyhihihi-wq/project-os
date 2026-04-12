@@ -7,6 +7,10 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
 
   return {
+    base: './',
+    server: {
+      port: 4223,
+    },
     plugins: [
       vue(),
       // 本地开发：把 /api/ai 请求直接转发到 DeepSeek，模拟 Vercel Serverless Function

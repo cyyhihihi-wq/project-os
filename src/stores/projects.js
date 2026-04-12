@@ -178,38 +178,58 @@ export const useProjectsStore = defineStore('projects', {
       // 云端无数据时保留本地数据，避免意外清空
       if (!projects.length) return
 
-      // 保存本地 updates 的 tags/highlight（云端 schema 未含这两列，不能丢）
-      const localUpdateExtras = {}
+      // ── 构建本地索引（用于合并而非覆盖）──
+      // 目的：
+      //   1. 恢复云端 schema 中不存在的字段（tags / highlight）
+      //   2. 保留尚未同步到云端的本地进展条目（syncCreate 失败或延迟时）
+      const localProjectsById = {}
       for (const p of this.items) {
-        for (const u of (p.updates || [])) {
-          localUpdateExtras[u.id] = {
-            tags: u.tags ?? [],
-            highlight: u.highlight ?? false,
-          }
-        }
+        localProjectsById[p.id] = p
       }
 
       const projectIds = projects.map(p => p.id)
-      const [{ data: updates }, { data: judgements }] = await Promise.all([
+      const [{ data: cloudUpdates }, { data: cloudJudgements }] = await Promise.all([
         supabase.from('project_updates').select('*').in('project_id', projectIds),
         supabase.from('project_judgements').select('*').in('project_id', projectIds),
       ])
 
-      this.items = projects.map(p => ({
-        ...p,
-        updates: (updates || [])
+      const cloudUpdateIdSet = new Set((cloudUpdates || []).map(u => u.id))
+
+      this.items = projects.map(p => {
+        const localProject = localProjectsById[p.id] || { updates: [], judgements: [] }
+
+        // 本地 updates 按 id 索引，用于恢复 tags/highlight
+        const localUpdatesById = {}
+        for (const u of (localProject.updates || [])) {
+          localUpdatesById[u.id] = u
+        }
+
+        // 本地有但云端没有的 update（syncCreate 失败/延迟），保留原样
+        const pendingLocalUpdates = (localProject.updates || []).filter(
+          u => !cloudUpdateIdSet.has(u.id)
+        )
+
+        // 云端 updates + 从本地恢复 tags/highlight
+        const syncedUpdates = (cloudUpdates || [])
           .filter(u => u.project_id === p.id)
-          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
           .map(u => ({
             ...u,
-            // 从本地恢复 tags/highlight，云端无此字段则降级为空值
-            tags: localUpdateExtras[u.id]?.tags ?? [],
-            highlight: localUpdateExtras[u.id]?.highlight ?? false,
-          })),
-        judgements: (judgements || [])
-          .filter(j => j.project_id === p.id)
-          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
-      }))
+            tags: localUpdatesById[u.id]?.tags ?? [],
+            highlight: localUpdatesById[u.id]?.highlight ?? false,
+          }))
+
+        // 合并：已同步 + 待同步（本地独有），统一按时间降序
+        const mergedUpdates = [...syncedUpdates, ...pendingLocalUpdates]
+          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+
+        return {
+          ...p,
+          updates: mergedUpdates,
+          judgements: (cloudJudgements || [])
+            .filter(j => j.project_id === p.id)
+            .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
+        }
+      })
       this._persist()
     },
 

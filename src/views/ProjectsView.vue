@@ -234,6 +234,7 @@ function startAddProgress() {
   progressTitle.value = ''
   progressDraft.value = ''
   progressImportedHtml.value = ''
+  progressTags.value = []
   progressHighlight.value = false
   showAddProgress.value = true
 }
@@ -361,6 +362,7 @@ async function saveUpdateEditWithAI() {
       title: result.title,
       content: result.content || updateEditDraft.value.content.trim(),
       tags: result.suggestedTags?.length > 0 ? result.suggestedTags : updateEditDraft.value.tags,
+      highlight: updateEditDraft.value.highlight,
       ...(iso ? { created_at: iso } : {}),
     })
     editingUpdateId.value = null
