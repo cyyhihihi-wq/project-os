@@ -211,97 +211,102 @@ function getDocSubtitle(doc) {
         </div>
 
         <!-- 编辑 / 新建 表单 -->
-        <div v-else-if="isEditing || isCreating" class="card">
-          <div class="flex-between" style="margin-bottom:16px">
-            <span style="font-weight:700;font-size:15px">{{ isCreating ? '新建文档' : '编辑文档' }}</span>
-            <button class="small" style="font-size:18px;padding:0 6px" @click="cancelEdit">×</button>
+        <div v-else-if="isEditing || isCreating" class="card" style="padding:24px">
+          <!-- 表单头 -->
+          <div class="flex-between" style="margin-bottom:24px">
+            <span style="font-weight:700;font-size:16px">{{ isCreating ? '新建文档' : '编辑文档' }}</span>
+            <button class="small" style="font-size:18px;padding:0 6px;line-height:1" @click="cancelEdit">×</button>
           </div>
 
           <!-- 标题 -->
-          <div class="mb-12">
-            <label class="text-xs text-secondary">标题 *</label>
-            <input v-model="draft.title" type="text" placeholder="文档标题" style="font-size:15px;font-weight:600" />
+          <div class="form-row">
+            <label class="form-label">标题</label>
+            <input
+              v-model="draft.title"
+              type="text"
+              placeholder="给这篇文档起个名字…"
+              style="font-size:15px;font-weight:600"
+            />
           </div>
 
-          <!-- 类型 -->
-          <div class="mb-12">
-            <label class="text-xs text-secondary" style="display:block;margin-bottom:6px">类型 *</label>
-            <div class="flex gap-8">
-              <label
-                class="flex gap-6"
-                style="align-items:center;cursor:pointer;padding:8px 14px;border-radius:var(--radius);border:1px solid var(--color-border);flex:1"
-                :style="{ borderColor: draft.type==='milestone' ? 'var(--color-primary)' : '', background: draft.type==='milestone' ? 'var(--color-primary-light)' : '' }"
+          <!-- 类型：分段控件样式 -->
+          <div class="form-row">
+            <label class="form-label">类型</label>
+            <div class="type-toggle">
+              <button
+                type="button"
+                class="type-btn"
+                :class="{ active: draft.type === 'milestone' }"
+                @click="draft.type = 'milestone'"
               >
-                <input type="radio" v-model="draft.type" value="milestone" />
-                <div>
-                  <div class="text-sm" style="font-weight:600">阶段性</div>
-                  <div class="text-xs text-secondary">某个时间节点的判断/结果</div>
-                </div>
-              </label>
-              <label
-                class="flex gap-6"
-                style="align-items:center;cursor:pointer;padding:8px 14px;border-radius:var(--radius);border:1px solid var(--color-border);flex:1"
-                :style="{ borderColor: draft.type==='periodic' ? 'var(--color-primary)' : '', background: draft.type==='periodic' ? 'var(--color-primary-light)' : '' }"
+                <span class="type-icon">📌</span>
+                <span class="type-main">阶段性</span>
+                <span class="type-sub">某个时间节点的判断或成果</span>
+              </button>
+              <button
+                type="button"
+                class="type-btn"
+                :class="{ active: draft.type === 'periodic' }"
+                @click="draft.type = 'periodic'"
               >
-                <input type="radio" v-model="draft.type" value="periodic" />
-                <div>
-                  <div class="text-sm" style="font-weight:600">周期性</div>
-                  <div class="text-xs text-secondary">周报 / 双周报 / 月报等</div>
-                </div>
-              </label>
+                <span class="type-icon">🔄</span>
+                <span class="type-main">周期性</span>
+                <span class="type-sub">周报 / 双周报 / 月报等</span>
+              </button>
             </div>
           </div>
 
           <!-- 阶段性：日期 -->
-          <div v-if="draft.type === 'milestone'" class="mb-12">
-            <label class="text-xs text-secondary">阶段时间 *</label>
+          <div v-if="draft.type === 'milestone'" class="form-row">
+            <label class="form-label">时间节点</label>
             <input v-model="draft.date" type="date" style="width:auto" />
           </div>
 
-          <!-- 周期性：周期类型 + 开始结束 -->
-          <div v-if="draft.type === 'periodic'" class="mb-12">
-            <label class="text-xs text-secondary" style="display:block;margin-bottom:6px">周期类型 *</label>
-            <div class="flex gap-8" style="align-items:center;flex-wrap:wrap">
-              <select v-model="draft.period_type" style="width:auto;font-size:13px">
+          <!-- 周期性：类型 + 起止 -->
+          <div v-if="draft.type === 'periodic'" class="form-row">
+            <label class="form-label">周期设置</label>
+            <div class="period-inputs">
+              <select v-model="draft.period_type" class="period-select">
                 <option value="weekly">周报</option>
                 <option value="biweekly">双周报</option>
                 <option value="monthly">月报</option>
               </select>
-              <span class="text-xs text-secondary">开始</span>
-              <input v-model="draft.period_start" type="date" style="width:auto" />
-              <span class="text-xs text-secondary">结束</span>
-              <input v-model="draft.period_end" type="date" style="width:auto" />
+              <div class="period-range">
+                <input v-model="draft.period_start" type="date" />
+                <span class="range-sep">→</span>
+                <input v-model="draft.period_end" type="date" />
+              </div>
             </div>
           </div>
 
-          <!-- 关联专项（可选） -->
-          <div class="mb-12">
-            <label class="text-xs text-secondary" style="display:block;margin-bottom:4px">关联专项（可选）</label>
-            <select
-              :value="draft.project_id || ''"
-              style="font-size:13px"
-              @change="onProjectChange"
-            >
+          <!-- 关联专项 -->
+          <div class="form-row">
+            <label class="form-label">关联专项 <span style="font-weight:400;opacity:0.6">（可选）</span></label>
+            <select :value="draft.project_id || ''" @change="onProjectChange" style="width:auto;min-width:160px">
               <option value="">不关联</option>
-              <option
-                v-for="p in projectsStore.items"
-                :key="p.id"
-                :value="p.id"
-              >{{ p.name }}</option>
+              <option v-for="p in projectsStore.items" :key="p.id" :value="p.id">{{ p.name }}</option>
             </select>
           </div>
 
+          <!-- 分割线 -->
+          <div style="border-top:1px solid var(--color-border);margin:8px 0 20px"></div>
+
           <!-- 内容 -->
-          <div class="mb-12">
-            <label class="text-xs text-secondary" style="display:block;margin-bottom:6px">内容（可从飞书等粘贴）</label>
+          <div>
+            <label class="form-label" style="display:block;margin-bottom:8px">
+              内容
+              <span style="font-weight:400;opacity:0.6;margin-left:4px">可从飞书、Notion 等直接粘贴</span>
+            </label>
             <RichEditor v-model="draft.content" :enableImagePaste="true" />
           </div>
 
-          <!-- 错误提示 -->
-          <div v-if="saveError" class="text-xs" style="color:var(--color-danger);margin-bottom:8px">{{ saveError }}</div>
+          <!-- 错误 -->
+          <div v-if="saveError" style="margin-top:12px;padding:8px 12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:var(--radius);font-size:13px;color:var(--color-danger)">
+            {{ saveError }}
+          </div>
 
-          <!-- 操作按钮 -->
-          <div class="flex gap-8" style="justify-content:flex-end">
+          <!-- 操作 -->
+          <div class="flex gap-8" style="justify-content:flex-end;margin-top:20px">
             <button @click="cancelEdit">取消</button>
             <button class="primary" @click="saveDoc">{{ isCreating ? '创建文档' : '保存修改' }}</button>
           </div>
@@ -376,5 +381,93 @@ function getDocSubtitle(doc) {
 .projects-right {
   flex: 1;
   min-width: 0;
+}
+
+/* ── 表单行 ── */
+.form-row {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 8px 14px;
+  align-items: start;
+  margin-bottom: 18px;
+}
+.form-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  padding-top: 8px;
+  line-height: 1.4;
+}
+
+/* ── 类型切换 ── */
+.type-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.type-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+.type-btn:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+.type-btn.active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+.type-icon {
+  font-size: 16px;
+  margin-bottom: 2px;
+}
+.type-main {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.type-btn.active .type-main {
+  color: var(--color-primary);
+}
+.type-sub {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+
+/* ── 周期输入组 ── */
+.period-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.period-select {
+  width: auto;
+  font-size: 13px;
+  font-weight: 600;
+}
+.period-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.period-range input {
+  width: auto;
+  flex-shrink: 0;
+}
+.range-sep {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
 }
 </style>
