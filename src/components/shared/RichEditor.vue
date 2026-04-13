@@ -47,11 +47,38 @@ onBeforeUnmount(() => editor.value?.destroy())
 
 // ── 图片粘贴（仅 enableImagePaste=true 时生效） ───────────────────────────────
 
-const uploadStatus = ref(null) // { type: 'loading'|'error', message }
+const uploadStatus = ref(null) // { type: 'loading'|'warn'|'error', message }
 
 function showStatus(type, message) {
   uploadStatus.value = { type, message }
-  if (type !== 'loading') setTimeout(() => { uploadStatus.value = null }, 4000)
+  // loading 保持到操作完成；warn/error 提示用户手动关闭（不自动消失）；其他 4s 消失
+  if (type !== 'loading' && type !== 'warn' && type !== 'error') {
+    setTimeout(() => { uploadStatus.value = null }, 4000)
+  }
+}
+
+/**
+ * 创建视觉明显的图片占位符（替代纯文本 [图片]）
+ * 存入 Tiptap HTML，inline styles 保证在展示区也能正确渲染
+ */
+function makePlaceholder(doc, n) {
+  const span = doc.createElement('span')
+  span.style.cssText = [
+    'display:inline-flex',
+    'align-items:center',
+    'gap:4px',
+    'background:#fff3e0',
+    'border:1px dashed #f97316',
+    'color:#c2410c',
+    'padding:2px 10px',
+    'border-radius:4px',
+    'font-size:12px',
+    'font-weight:600',
+    'cursor:default',
+    'user-select:none',
+  ].join(';')
+  span.textContent = `📷 图${n}（来源受限，请截图后粘贴到此位置）`
+  return span
 }
 
 /** base64 data URL → File 对象 */
@@ -104,16 +131,22 @@ async function pasteScreenshot(files) {
 /**
  * 图文混排粘贴（HTML 中含非 https 图片）。
  *
- * https       → 保留（Tiptap 直接渲染外链）
- * data:image  → 转 File → objectURL → 上传替换
- * 其余        → 浏览器安全策略无法访问（file:/blob:/cid:），直接移除
- *               移除后显示提示，引导用户截图粘贴
+ * 处理优先级：
+ * 1. https:// 外链  → 直接保留
+ * 2. data:image/    → base64 转 File → objectURL → 上传
+ * 3. blob:/cid:/其他不可访问 → 优先从 clipboardImageFiles 按顺序取文件替代；
+ *                             文件耗尽后降级为视觉占位符（橙框提示）
+ *
+ * @param {string} html - 剪贴板 HTML
+ * @param {File[]} clipboardImageFiles - 剪贴板中收集到的图片 File 对象（按顺序）
  */
-async function pasteHtmlWithImages(html) {
+async function pasteHtmlWithImages(html, clipboardImageFiles = []) {
   const doc = new DOMParser().parseFromString(html, 'text/html')
   const imgs = [...doc.querySelectorAll('img')]
   const uploadTasks = [] // { objectUrl, file }
-  let removedCount = 0
+  let placeholderCount = 0
+  // 消费队列：按位置匹配不可访问图片
+  const fileQueue = [...clipboardImageFiles]
 
   for (const img of imgs) {
     const src = img.getAttribute('src') || ''
@@ -126,24 +159,37 @@ async function pasteHtmlWithImages(html) {
         const objectUrl = URL.createObjectURL(file)
         img.setAttribute('src', objectUrl)
         uploadTasks.push({ objectUrl, file })
-      } catch { img.replaceWith(doc.createTextNode('[图片]')); removedCount++ }
+      } catch {
+        img.replaceWith(makePlaceholder(doc, ++placeholderCount))
+      }
       continue
     }
 
-    // file:/blob:/cid:/其他 → 浏览器无法访问，替换为占位文字
-    img.replaceWith(doc.createTextNode('[图片]'))
-    removedCount++
+    // blob:/cid:/file:/其他 → 跨域不可访问
+    // 策略 1：剪贴板中有文件数据，按位置取用（飞书图文混排走此路径）
+    if (fileQueue.length > 0) {
+      const file = fileQueue.shift()
+      const objectUrl = URL.createObjectURL(file)
+      img.setAttribute('src', objectUrl)
+      uploadTasks.push({ objectUrl, file })
+    } else {
+      // 策略 2：无可用文件，插入视觉占位符，引导用户补充
+      img.replaceWith(makePlaceholder(doc, ++placeholderCount))
+    }
   }
 
-  // 插入处理后的 HTML（img src 全为 objectURL / https，或已移除）
+  // 插入处理后的 HTML（img src 全为 objectURL / https，或已替换为占位符）
   editor.value?.chain().focus().insertContent(doc.body.innerHTML).run()
 
-  if (removedCount > 0 && !uploadTasks.length) {
-    showStatus('warn', '图片来源受浏览器限制无法粘贴，请截图（Win+Shift+S）后粘贴')
+  if (!uploadTasks.length) {
+    if (placeholderCount > 0) {
+      showStatus('warn',
+        `${placeholderCount} 张图片来源受浏览器限制，已在文中标记📷位置。` +
+        `请在飞书中右键单张图片→复制，再点击对应位置粘贴补充。`
+      )
+    }
     return
   }
-
-  if (!uploadTasks.length) return
 
   showStatus('loading', uploadTasks.length > 1 ? `正在上传 ${uploadTasks.length} 张图片…` : '图片上传中…')
 
@@ -162,10 +208,12 @@ async function pasteHtmlWithImages(html) {
   }
 
   applyReplacements(replacements)
-  if (hasErrors || removedCount > 0) {
+  if (hasErrors || placeholderCount > 0) {
     showStatus('warn', [
-      hasErrors ? '部分图片上传失败' : '',
-      removedCount > 0 ? '部分图片来源受限，请截图后粘贴' : '',
+      hasErrors ? '部分图片上传失败，请重试' : '',
+      placeholderCount > 0
+        ? `${placeholderCount} 张图片来源受限，已标记📷位置，请截图后逐一补充`
+        : '',
     ].filter(Boolean).join('；'))
   } else {
     uploadStatus.value = null
@@ -193,9 +241,10 @@ async function onPaste(event) {
   }
 
   // ── A: 有 HTML 且含图片 → 统一走图片处理流程 ─────────────────────────
+  // 注意：imageFiles 也一并传入，用于替代 HTML 里不可访问的 blob:/cid: 图片
   if (html && html.trim() && /<img\b/i.test(html)) {
     event.preventDefault()
-    await pasteHtmlWithImages(html)
+    await pasteHtmlWithImages(html, imageFiles)
     return
   }
 
@@ -213,8 +262,20 @@ async function onPaste(event) {
 <template>
   <div class="rich-editor" @paste.capture="onPaste">
     <!-- 状态栏：在编辑器外，不写入 HTML 正文 -->
-    <div v-if="uploadStatus" class="upload-status-bar" :class="'status-' + uploadStatus.type">
-      {{ uploadStatus.message }}
+    <div
+      v-if="uploadStatus"
+      class="upload-status-bar"
+      :class="'status-' + uploadStatus.type"
+      style="display:flex;align-items:flex-start;gap:8px;justify-content:space-between"
+    >
+      <span style="flex:1;line-height:1.5">{{ uploadStatus.message }}</span>
+      <!-- warn/error 提供手动关闭按钮 -->
+      <button
+        v-if="uploadStatus.type === 'warn' || uploadStatus.type === 'error'"
+        style="flex-shrink:0;border:none;background:none;cursor:pointer;font-size:14px;line-height:1;padding:0;opacity:0.6"
+        @mousedown.prevent="uploadStatus = null"
+        title="关闭"
+      >×</button>
     </div>
 
     <div v-if="editor" class="rich-editor-toolbar">
