@@ -17,6 +17,7 @@ function clearLocalData() {
     'work_materials',
     'work_styles',
     'work_tags',
+    'work_docs',
   ]
   keys.forEach(k => localStorage.removeItem(k))
   window.location.reload()
@@ -30,6 +31,7 @@ const showExport = ref(false)
     <span class="nav-brand">WorkOS</span>
     <RouterLink to="/tasks">任务</RouterLink>
     <RouterLink to="/projects">专项</RouterLink>
+    <RouterLink to="/docs">文档</RouterLink>
     <RouterLink to="/ai">AI</RouterLink>
     <span class="nav-spacer"></span>
     <button style="font-size:13px;padding:4px 10px" @click="clearLocalData">清空本地测试数据</button>

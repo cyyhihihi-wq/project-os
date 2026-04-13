@@ -3,6 +3,7 @@ import TasksView from '../views/TasksView.vue'
 import ProjectsView from '../views/ProjectsView.vue'
 import AIView from '../views/AIView.vue'
 import AuthView from '../views/AuthView.vue'
+import DocsView from '../views/DocsView.vue'
 import { useAuthStore } from '../stores/auth.js'
 
 const router = createRouter({
@@ -11,6 +12,7 @@ const router = createRouter({
     { path: '/', redirect: '/tasks' },
     { path: '/tasks', name: 'tasks', component: TasksView },
     { path: '/projects', name: 'projects', component: ProjectsView },
+    { path: '/docs', name: 'docs', component: DocsView },
     { path: '/ai', name: 'ai', component: AIView },
     { path: '/auth', name: 'auth', component: AuthView },
   ],

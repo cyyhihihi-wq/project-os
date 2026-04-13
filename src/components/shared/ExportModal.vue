@@ -2,12 +2,14 @@
 import { ref, computed, onMounted } from 'vue'
 import { useProjectsStore } from '../../stores/projects.js'
 import { useTasksStore } from '../../stores/tasks.js'
+import { useDocsStore, PERIOD_LABELS } from '../../stores/docs.js'
 import { htmlToText } from '../../ai/contextBuilders.js'
 
 const emit = defineEmits(['close'])
 
 const projectsStore = useProjectsStore()
 const tasksStore = useTasksStore()
+const docsStore = useDocsStore()
 
 // ── 持久化 key ──
 const RULES_KEY = 'work_export_rules'
@@ -56,10 +58,29 @@ function toggleProject(id) {
 // ── 导出范围 ──
 const includeUpdates = ref(true)
 const includeTasks = ref(true)
+const includeDocs = ref(true)
+
+// ── 文档：周期性自动匹配，阶段性手动选择 ──
+const selectedMilestoneDocIds = ref([])
+
+// 在当前日期范围内自动匹配的周期性文档
+const matchedPeriodicDocs = computed(() =>
+  docsStore.matchPeriodic(dateStart.value, dateEnd.value)
+)
+// 阶段性文档列表（全部，供手动勾选）
+const milestoneDocs = computed(() => docsStore.milestones)
+
+function toggleMilestoneDoc(id) {
+  const idx = selectedMilestoneDocIds.value.indexOf(id)
+  if (idx === -1) selectedMilestoneDocIds.value.push(id)
+  else selectedMilestoneDocIds.value.splice(idx, 1)
+}
 
 // 初始化
 onMounted(() => {
   selectedProjectIds.value = [...allProjectIds.value]
+  // 阶段性文档默认不选（需手动圈定）
+  selectedMilestoneDocIds.value = []
   const saved = localStorage.getItem(RULES_KEY)
   if (saved !== null) rulesText.value = saved
 })
@@ -217,6 +238,33 @@ function generateTxt() {
           lines.push(`  创建：${fmtDate(t.created_at)}`)
           lines.push('')
         }
+      }
+    }
+  }
+
+  // ── 文档成果 ──
+  if (includeDocs.value) {
+    const docsToExport = [
+      ...matchedPeriodicDocs.value,
+      ...docsStore.items.filter(d => d.type === 'milestone' && selectedMilestoneDocIds.value.includes(d.id)),
+    ]
+    if (docsToExport.length > 0) {
+      lines.push('')
+      lines.push('')
+      lines.push(SEP1)
+      lines.push(`【文档成果】  共 ${docsToExport.length} 篇`)
+      lines.push(SEP1)
+      for (const doc of docsToExport) {
+        lines.push('')
+        const typeLabel = doc.type === 'milestone'
+          ? `阶段性 · ${doc.date || ''}`
+          : `${PERIOD_LABELS[doc.period_type] || doc.period_type} · ${[doc.period_start, doc.period_end].filter(Boolean).join(' ~ ')}`
+        const projectStr = doc.project ? `  [${doc.project}]` : ''
+        lines.push(`▌ ${doc.title}  （${typeLabel}）${projectStr}`)
+        lines.push(SEP2)
+        const body = htmlToTextWithImages(doc.content, imgCounter)
+        if (body) body.split('\n').forEach(l => { if (l.trim()) lines.push('  ' + l) })
+        else lines.push('  （无内容）')
       }
     }
   }
@@ -382,6 +430,32 @@ function generateHtml() {
     }
   }
 
+  // 文档成果
+  if (includeDocs.value) {
+    const docsToExport = [
+      ...matchedPeriodicDocs.value,
+      ...docsStore.items.filter(d => d.type === 'milestone' && selectedMilestoneDocIds.value.includes(d.id)),
+    ]
+    if (docsToExport.length > 0) {
+      body += `<div class="task-section">`
+      body += `<h2>文档成果 <span style="color:#aaa;font-size:13px;font-weight:400">共 ${docsToExport.length} 篇</span></h2>`
+      for (const doc of docsToExport) {
+        const typeLabel = doc.type === 'milestone'
+          ? `阶段性 · ${doc.date || ''}`
+          : `${PERIOD_LABELS[doc.period_type] || doc.period_type} · ${[doc.period_start, doc.period_end].filter(Boolean).join(' ~ ')}`
+        body += `<div style="border:1px solid #e8e8e8;border-radius:8px;margin-bottom:16px;overflow:hidden">`
+        body += `<div style="background:#f7f7f7;padding:8px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">`
+        body += `<span style="font-weight:700;font-size:14px">${escapeHtml(doc.title)}</span>`
+        body += `<span style="font-size:12px;color:#777">${escapeHtml(typeLabel)}</span>`
+        if (doc.project) body += `<span style="font-size:11px;background:#ede9fe;color:#6d28d9;padding:1px 6px;border-radius:3px">${escapeHtml(doc.project)}</span>`
+        body += `</div>`
+        body += `<div style="padding:14px;font-size:14px;line-height:1.75">${doc.content || '<em style="color:#aaa">（无内容）</em>'}</div>`
+        body += `</div>`
+      }
+      body += `</div>`
+    }
+  }
+
   const html = `<!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -524,7 +598,67 @@ function download() {
             <input type="checkbox" v-model="includeTasks" />
             <span class="text-sm">任务</span>
           </label>
+          <label class="flex gap-6" style="align-items:center;cursor:pointer">
+            <input type="checkbox" v-model="includeDocs" />
+            <span class="text-sm">文档成果</span>
+          </label>
         </div>
+      </div>
+
+      <!-- 文档成果选择（includeDocs 开启时显示） -->
+      <div v-if="includeDocs && docsStore.items.length > 0" class="mb-12" style="border:1px solid var(--color-border);border-radius:var(--radius);overflow:hidden">
+        <div style="padding:8px 12px;background:var(--color-bg);border-bottom:1px solid var(--color-border);font-size:12px;font-weight:600;color:var(--color-text-secondary)">
+          文档成果配置
+        </div>
+        <div style="padding:10px 12px">
+          <!-- 周期性：自动匹配 -->
+          <div class="mb-8">
+            <div class="flex-between">
+              <span class="text-xs text-secondary">周期性文档（自动匹配日期范围）</span>
+              <span
+                class="text-xs"
+                :style="{ color: matchedPeriodicDocs.length > 0 ? 'var(--color-primary)' : 'var(--color-text-secondary)' }"
+              >已匹配 {{ matchedPeriodicDocs.length }} 篇</span>
+            </div>
+            <div v-if="matchedPeriodicDocs.length > 0" style="margin-top:6px">
+              <div
+                v-for="doc in matchedPeriodicDocs"
+                :key="doc.id"
+                class="text-xs text-secondary"
+                style="padding:2px 0;padding-left:8px;border-left:2px solid var(--color-primary)"
+              >
+                {{ doc.title }}
+                <span style="opacity:0.6">· {{ PERIOD_LABELS[doc.period_type] || doc.period_type }} · {{ [doc.period_start, doc.period_end].filter(Boolean).join(' ~ ') }}</span>
+              </div>
+            </div>
+            <div v-else class="text-xs text-secondary" style="margin-top:4px;font-style:italic">
+              {{ dateStart || dateEnd ? '当前日期范围内无匹配的周期性文档' : '未设置日期范围，将包含全部周期性文档' }}
+            </div>
+          </div>
+          <!-- 阶段性：手动圈选 -->
+          <div v-if="milestoneDocs.length > 0" style="border-top:1px solid var(--color-border);padding-top:8px">
+            <div class="text-xs text-secondary" style="margin-bottom:6px">阶段性文档（手动圈选，以下文档默认不选）</div>
+            <div style="max-height:120px;overflow-y:auto">
+              <label
+                v-for="doc in milestoneDocs"
+                :key="doc.id"
+                class="flex gap-8"
+                style="align-items:center;cursor:pointer;padding:4px 0"
+              >
+                <input
+                  type="checkbox"
+                  :checked="selectedMilestoneDocIds.includes(doc.id)"
+                  @change="toggleMilestoneDoc(doc.id)"
+                />
+                <span class="text-xs">{{ doc.title }}</span>
+                <span class="text-xs text-secondary" style="margin-left:auto;flex-shrink:0">{{ doc.date || '-' }}</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-else-if="includeDocs && docsStore.items.length === 0" class="mb-12">
+        <div class="text-xs text-secondary" style="font-style:italic">暂无文档成果，请先在「文档」页面创建</div>
       </div>
 
       <!-- 专项选择 -->
@@ -608,7 +742,7 @@ function download() {
         <button @click="preview">预览</button>
         <button
           class="primary"
-          :disabled="!includeUpdates && !includeTasks"
+          :disabled="!includeUpdates && !includeTasks && !includeDocs"
           @click="download"
         >下载 {{ exportFormat.toUpperCase() }}</button>
       </div>

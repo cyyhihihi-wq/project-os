@@ -12,6 +12,7 @@ import { useMaterialsStore } from './stores/materials.js'
 import { useStylesStore } from './stores/styles.js'
 import { useTagsStore } from './stores/tags.js'
 import { useAiDocumentsStore } from './stores/aiDocuments.js'
+import { useDocsStore } from './stores/docs.js'
 
 ;(async () => {
   const app = createApp(App)
@@ -40,6 +41,7 @@ import { useAiDocumentsStore } from './stores/aiDocuments.js'
   materialsStore.init()
   stylesStore.init()
   useTagsStore(pinia).init()
+  useDocsStore(pinia).init()
 
   // 云端只读初始化：mount 前 await，首屏直接呈现云端数据，不产生闪烁
   // 失败时静默降级到本地数据，不阻断启动
