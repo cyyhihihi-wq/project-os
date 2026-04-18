@@ -136,6 +136,8 @@ export const useProjectsStore = defineStore('projects', {
         project_id: projectId,
         title: u.title,
         content: u.content,
+        tags: u.tags,
+        highlight: u.highlight,
         created_at: u.created_at,
       })
       return u
@@ -149,9 +151,7 @@ export const useProjectsStore = defineStore('projects', {
       Object.assign(u, changes)
       p.updated_at = new Date().toISOString()
       this._persist()
-      // tags / highlight 仅存本地，不同步到云端（v2-final schema 未含这两列）
-      const { tags, highlight, ...cloudChanges } = changes
-      syncUpdate('project_updates', updateId, cloudChanges)
+      syncUpdate('project_updates', updateId, changes)
     },
 
     removeProjectUpdate(projectId, updateId) {
@@ -209,13 +209,14 @@ export const useProjectsStore = defineStore('projects', {
           u => !cloudUpdateIdSet.has(u.id)
         )
 
-        // 云端 updates + 从本地恢复 tags/highlight
+        // 云端 updates：tags / highlight 已存云端，直接使用
+        // 兜底：若云端该字段为 null（旧数据迁移前），回落到本地缓存
         const syncedUpdates = (cloudUpdates || [])
           .filter(u => u.project_id === p.id)
           .map(u => ({
             ...u,
-            tags: localUpdatesById[u.id]?.tags ?? [],
-            highlight: localUpdatesById[u.id]?.highlight ?? false,
+            tags: u.tags ?? localUpdatesById[u.id]?.tags ?? [],
+            highlight: u.highlight ?? localUpdatesById[u.id]?.highlight ?? false,
           }))
 
         // 合并：已同步 + 待同步（本地独有），统一按时间降序
