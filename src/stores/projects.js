@@ -209,15 +209,27 @@ export const useProjectsStore = defineStore('projects', {
           u => !cloudUpdateIdSet.has(u.id)
         )
 
-        // 云端 updates：tags / highlight 已存云端，直接使用
-        // 兜底：若云端该字段为 null（旧数据迁移前），回落到本地缓存
+        // 云端 updates 合并策略：
+        //   tags   — 云端有内容优先；云端为 null/[] 时回落到本地缓存（兼容 DEFAULT '[]' 迁移）
+        //   highlight — 云端 true 优先；云端 false/null 时回落到本地缓存
+        // 原因：Supabase 列加默认值后旧行 tags=[], highlight=false，
+        //       直接 `??` 只能判 null/undefined，无法识别空数组/false，会误覆盖本地数据。
         const syncedUpdates = (cloudUpdates || [])
           .filter(u => u.project_id === p.id)
-          .map(u => ({
-            ...u,
-            tags: u.tags ?? localUpdatesById[u.id]?.tags ?? [],
-            highlight: u.highlight ?? localUpdatesById[u.id]?.highlight ?? false,
-          }))
+          .map(u => {
+            const local = localUpdatesById[u.id]
+            // tags：云端非空数组 → 用云端；否则看本地；再否则空数组
+            const cloudTags = Array.isArray(u.tags) ? u.tags : null
+            const localTags = local?.tags
+            const tags = (cloudTags && cloudTags.length > 0)
+              ? cloudTags
+              : (localTags && localTags.length > 0 ? localTags : (cloudTags ?? []))
+            // highlight：任意一方为 true 则保留 true（优先云端）
+            const highlight = u.highlight === true
+              ? true
+              : (local?.highlight === true ? true : false)
+            return { ...u, tags, highlight }
+          })
 
         // 合并：已同步 + 待同步（本地独有），统一按时间降序
         const mergedUpdates = [...syncedUpdates, ...pendingLocalUpdates]
