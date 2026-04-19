@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
 import { loadDocs, persistDocs } from '../data/repositories/docsRepository.js'
+import { supabase } from '../lib/supabase.js'
+import { syncCreate, syncUpdate, syncDelete } from '../lib/cloudSync.js'
 
 // 周期类型标签
 export const PERIOD_LABELS = {
@@ -49,38 +51,51 @@ export const useDocsStore = defineStore('docs', {
         id: crypto.randomUUID(),
         title: data.title?.trim() || '未命名文档',
         type: data.type || 'milestone',
-        // 阶段性
         date: data.date || '',
-        // 周期性
         period_type: data.period_type || 'monthly',
         period_start: data.period_start || '',
         period_end: data.period_end || '',
-        // 可选关联专项
         project_id: data.project_id || null,
         project: data.project || '',
-        // 内容
         content: data.content || '',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }
       this.items.unshift(doc)
       persistDocs(this.items)
+      syncCreate('docs', doc)
       return doc
     },
 
     update(id, changes) {
       const idx = this.items.findIndex(d => d.id === id)
       if (idx === -1) return
-      this.items[idx] = {
-        ...this.items[idx],
-        ...changes,
-        updated_at: new Date().toISOString(),
-      }
+      const updated_at = new Date().toISOString()
+      this.items[idx] = { ...this.items[idx], ...changes, updated_at }
       persistDocs(this.items)
+      syncUpdate('docs', id, { ...changes, updated_at })
     },
 
     remove(id) {
       this.items = this.items.filter(d => d.id !== id)
+      persistDocs(this.items)
+      syncDelete('docs', id)
+    },
+
+    async initFromCloud(userId) {
+      const { data, error } = await supabase
+        .from('docs')
+        .select('*')
+        .eq('user_id', userId)
+        .order('updated_at', { ascending: false })
+
+      if (error) {
+        console.error('[cloud] docs fetch error:', error.message)
+        return
+      }
+      if (!data.length) return
+
+      this.items = data
       persistDocs(this.items)
     },
   },

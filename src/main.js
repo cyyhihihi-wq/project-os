@@ -48,6 +48,7 @@ import { useDocsStore } from './stores/docs.js'
   if (authStore.user) {
     const userId = authStore.user.id
     const aiDocumentsStore = useAiDocumentsStore(pinia)
+    const docsStore = useDocsStore(pinia)
     try {
       await Promise.all([
         projectsStore.initFromCloud(userId),
@@ -55,6 +56,7 @@ import { useDocsStore } from './stores/docs.js'
         materialsStore.initFromCloud(userId),
         stylesStore.initFromCloud(userId),
         aiDocumentsStore.loadDocuments(userId),
+        docsStore.initFromCloud(userId),
       ])
     } catch (err) {
       console.error('[cloud] init failed, using local data:', err)

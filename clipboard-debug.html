@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Clipboard Debug</title>
+<style>
+  body { font-family: monospace; margin: 24px; background: #1e1e1e; color: #d4d4d4; }
+  h2 { color: #4ec9b0; margin: 0 0 8px; }
+  #target {
+    width: 100%; min-height: 80px; padding: 12px;
+    background: #252526; border: 2px dashed #4ec9b0; border-radius: 6px;
+    color: #d4d4d4; font-size: 14px; box-sizing: border-box; margin-bottom: 16px;
+    outline: none;
+  }
+  #target:empty::before { content: '← 点这里，然后 Ctrl+V 粘贴内容'; color: #666; }
+  .card {
+    background: #252526; border: 1px solid #3c3c3c; border-radius: 6px;
+    margin-bottom: 12px; overflow: hidden;
+  }
+  .card-title {
+    background: #2d2d30; padding: 6px 12px; font-size: 12px;
+    color: #9cdcfe; border-bottom: 1px solid #3c3c3c;
+  }
+  .card-body { padding: 10px 12px; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+  .tag { display: inline-block; padding: 1px 6px; border-radius: 3px; margin: 2px; font-size: 11px; }
+  .tag-https    { background: #1e6b1e; color: #89d185; }
+  .tag-data     { background: #6b3d1e; color: #f4a460; }
+  .tag-blob     { background: #1e3d6b; color: #6cb6f5; }
+  .tag-cid      { background: #5c1e6b; color: #d4a0f5; }
+  .tag-file     { background: #6b1e1e; color: #f58080; }
+  .tag-empty    { background: #3c3c3c; color: #808080; }
+  .tag-other    { background: #4a3c1e; color: #d4c470; }
+  .count        { font-size: 20px; font-weight: bold; color: #4ec9b0; }
+  button { padding: 6px 14px; background: #3c3c3c; color: #ccc; border: 1px solid #555;
+           border-radius: 4px; cursor: pointer; font-family: monospace; }
+  button:hover { background: #4a4a4a; }
+  #log { margin-top: 16px; }
+</style>
+</head>
+<body>
+<h2>Clipboard Debug — 粘贴分析工具</h2>
+<div id="target" contenteditable="true" tabindex="0"></div>
+<button onclick="clearLog()">清空</button>
+<div id="log"></div>
+
+<script>
+function clearLog() {
+  document.getElementById('log').innerHTML = ''
+  document.getElementById('target').innerHTML = ''
+}
+
+function srcType(src) {
+  if (!src) return ['empty', '空']
+  if (/^https?:\/\//i.test(src)) return ['https', 'https']
+  if (/^data:image/i.test(src)) return ['data', 'data:image(' + (src.length) + ' chars)']
+  if (src.startsWith('blob:')) return ['blob', 'blob:']
+  if (src.startsWith('cid:')) return ['cid', 'cid:']
+  if (src.startsWith('file:')) return ['file', 'file:']
+  return ['other', 'other: ' + src.slice(0, 40)]
+}
+
+document.getElementById('target').addEventListener('paste', function(e) {
+  e.preventDefault()
+  const cb = e.clipboardData
+  const html = cb.getData('text/html')
+  const plain = cb.getData('text/plain')
+  const types = [...cb.types]
+
+  const items = []
+  for (const it of cb.items) items.push(it.kind + ' / ' + it.type)
+
+  const doc = html ? new DOMParser().parseFromString(html, 'text/html') : null
+  const imgs = doc ? [...doc.querySelectorAll('img')] : []
+  const imgSrcs = imgs.map(img => srcType(img.getAttribute('src') || ''))
+
+  const hasNonHttpImg = /<img\b[^>]*\bsrc=["'](?!https?:\/\/)/i.test(html || '')
+  const branch = !html?.trim()
+    ? (cb.files.length > 0 ? 'B: 纯图片文件' : 'C: 纯文字')
+    : (hasNonHttpImg ? 'A: HTML + 非https img → 拦截' : 'A: HTML → 不拦截（Tiptap原生）')
+
+  const log = document.getElementById('log')
+  const div = document.createElement('div')
+  div.className = 'card'
+  div.innerHTML = `
+    <div class="card-title">📋 粘贴 #${log.children.length + 1} — ${new Date().toLocaleTimeString()}</div>
+    <div class="card-body">
+<b style="color:#ce9178">▸ types</b>
+${types.map(t => `  <span class="tag tag-other">${t}</span>`).join('')}
+
+<b style="color:#ce9178">▸ files.length</b>  <span class="count">${cb.files.length}</span>
+
+<b style="color:#ce9178">▸ items (${items.length})</b>
+${items.map(i => '  ' + i).join('\n') || '  (空)'}
+
+<b style="color:#ce9178">▸ img 数量</b>  <span class="count">${imgs.length}</span>
+
+<b style="color:#ce9178">▸ img src 类型</b>
+${imgSrcs.length === 0 ? '  (无 img)' : imgSrcs.map(([k, v], i) => `  [${i}] <span class="tag tag-${k}">${v}</span>`).join('\n')}
+
+<b style="color:#ce9178">▸ 代码命中分支</b>
+  ${branch}
+
+<b style="color:#ce9178">▸ html (前 800 字符)</b>
+${(html || '(无)').slice(0, 800)}
+
+<b style="color:#ce9178">▸ plain (前 300 字符)</b>
+${(plain || '(无)').slice(0, 300)}
+    </div>
+  `
+  log.prepend(div)
+}, true)
+</script>
+</body>
+</html>
