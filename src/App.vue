@@ -24,18 +24,40 @@ function clearLocalData() {
 }
 
 const showExport = ref(false)
+const showMobileMenu = ref(false)
 </script>
 
 <template>
-  <nav v-if="authStore.user" class="nav">
+  <nav v-if="authStore.user" class="nav" @click="showMobileMenu = false">
     <span class="nav-brand">WorkOS</span>
     <RouterLink to="/tasks">任务</RouterLink>
     <RouterLink to="/projects">专项</RouterLink>
     <RouterLink to="/docs">文档</RouterLink>
     <RouterLink to="/ai">AI</RouterLink>
     <span class="nav-spacer"></span>
-    <button style="font-size:13px;padding:4px 10px" @click="clearLocalData">清空本地测试数据</button>
-    <button style="font-size:13px;padding:4px 10px" @click="authStore.signOut()">退出</button>
+    <!-- 桌面端按钮 -->
+    <button class="nav-desktop-only" style="font-size:13px;padding:4px 10px" @click="clearLocalData">清空本地测试数据</button>
+    <button class="nav-desktop-only" style="font-size:13px;padding:4px 10px" @click="authStore.signOut()">退出</button>
+    <!-- 手机端折叠菜单 -->
+    <div class="nav-mobile-only" style="position:relative" @click.stop>
+      <button
+        style="font-size:18px;padding:2px 8px;line-height:1.4;border-color:transparent;background:transparent"
+        @click="showMobileMenu = !showMobileMenu"
+      >⋮</button>
+      <div
+        v-if="showMobileMenu"
+        style="position:absolute;right:0;top:calc(100% + 4px);background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius);z-index:200;min-width:130px;padding:4px 0;box-shadow:0 4px 16px rgba(0,0,0,.12)"
+      >
+        <button
+          style="display:block;width:100%;text-align:left;padding:9px 16px;border:none;border-radius:0;background:transparent;font-size:13px;color:var(--color-text)"
+          @click="clearLocalData; showMobileMenu = false"
+        >清空本地数据</button>
+        <button
+          style="display:block;width:100%;text-align:left;padding:9px 16px;border:none;border-radius:0;background:transparent;font-size:13px;color:var(--color-danger)"
+          @click="authStore.signOut()"
+        >退出登录</button>
+      </div>
+    </div>
   </nav>
 
   <!-- 云端同步失败 banner -->

@@ -419,12 +419,12 @@ function taskTimeLabel(task) {
         @keydown.enter="addTask"
         @focus="showInputOptions = true"
       />
-      <div v-if="showInputOptions" class="flex gap-12 mt-8">
-        <select v-model="newProjectId" style="width:auto;flex:1">
+      <div v-if="showInputOptions" class="flex task-input-row gap-12 mt-8">
+        <select v-model="newProjectId" style="flex:1">
           <option value="">无专项</option>
           <option v-for="p in projectsStore.items" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
-        <input type="date" v-model="newDue" style="width:auto;flex:1" />
+        <input type="date" v-model="newDue" style="flex:1" />
       </div>
     </div>
 
@@ -831,5 +831,24 @@ function taskTimeLabel(task) {
   color: #10b981;
   font-size: 15px;
   line-height: 1;
+}
+
+/* ── 手机端响应式 ── */
+@media (max-width: 639px) {
+  /* 周统计右侧：换行显示 */
+  .week-stats-right {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 2px 6px;
+    font-size: 12px;
+  }
+  .sep {
+    display: none;
+  }
+  /* 任务输入区 project + date 选择器竖排 */
+  .task-input-row {
+    flex-direction: column;
+    gap: 8px;
+  }
 }
 </style>

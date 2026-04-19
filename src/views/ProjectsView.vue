@@ -25,6 +25,13 @@ const projectStatusColors = { active: 'var(--color-primary)', done: 'var(--color
 const selectedId = ref(projectsStore.items[0]?.id || null)
 const current = computed(() => projectsStore.getById(selectedId.value))
 
+// -- Mobile panel (list | detail) --
+const mobilePanel = ref('list')
+function selectProjectMobile(id) {
+  selectedId.value = id
+  mobilePanel.value = 'detail'
+}
+
 // 若组件挂载时 items 为空（HMR 状态丢失或云端延迟），补救性重新拉取
 onMounted(async () => {
   if (projectsStore.items.length === 0 && authStore.user) {
@@ -427,7 +434,7 @@ function nowDatetimeLocal() {
 </script>
 
 <template>
-  <div class="page-wide projects-layout" @click="showProjectMenu = false">
+  <div class="page-wide projects-layout" :data-panel="mobilePanel" @click="showProjectMenu = false">
     <!-- Left: Project List -->
     <div class="projects-left">
       <div class="flex-between mb-12">
@@ -452,7 +459,7 @@ function nowDatetimeLocal() {
           borderColor: selectedId === p.id ? 'var(--color-primary)' : '',
           background: selectedId === p.id ? 'var(--color-primary-light)' : '',
         }"
-        @click="selectedId = p.id"
+        @click="selectProjectMobile(p.id)"
       >
         <div class="flex-between">
           <span style="font-weight:600;font-size:15px">{{ p.name }}</span>
@@ -467,6 +474,8 @@ function nowDatetimeLocal() {
 
     <!-- Right: Project Detail -->
     <div class="projects-right" v-if="current">
+      <!-- 手机端返回按钮 -->
+      <button class="mobile-back-btn" @click="mobilePanel = 'list'">← 返回列表</button>
       <div class="flex-between" style="margin-bottom:20px">
         <h2 style="font-size:20px;margin:0">{{ current.name }}</h2>
         <div class="flex gap-8" style="align-items:center">
@@ -808,6 +817,45 @@ function nowDatetimeLocal() {
 .projects-right {
   flex: 1;
   min-width: 0;
+}
+
+/* 手机端返回按钮：桌面端隐藏 */
+.mobile-back-btn {
+  display: none;
+}
+
+/* ── 手机端响应式 ── */
+@media (max-width: 639px) {
+  .projects-layout {
+    display: block;
+  }
+  /* 默认显示列表，隐藏详情 */
+  .projects-left {
+    display: block;
+  }
+  .projects-right {
+    display: none;
+  }
+  /* 切换到详情时：显示详情，隐藏列表 */
+  .projects-layout[data-panel="detail"] .projects-left {
+    display: none;
+  }
+  .projects-layout[data-panel="detail"] .projects-right {
+    display: block;
+  }
+  /* 返回按钮 */
+  .mobile-back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    padding: 6px 12px;
+    margin-bottom: 16px;
+    color: var(--color-primary);
+    background: var(--color-primary-light);
+    border-color: transparent;
+    border-radius: var(--radius);
+  }
 }
 
 /* Week divider */

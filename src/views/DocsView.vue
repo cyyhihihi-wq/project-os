@@ -20,10 +20,14 @@ const filteredDocs = computed(() => {
 const selectedId = ref(null)
 const selectedDoc = computed(() => docsStore.items.find(d => d.id === selectedId.value) || null)
 
+// ── 手机端面板切换 ──
+const mobilePanel = ref('list') // 'list' | 'detail'
+
 function selectDoc(id) {
   selectedId.value = id
   isEditing.value = false
   isCreating.value = false
+  mobilePanel.value = 'detail'
 }
 
 // ── 新建 / 编辑 状态 ──
@@ -51,6 +55,7 @@ function startCreate() {
   selectedId.value = null
   isCreating.value = true
   isEditing.value = false
+  mobilePanel.value = 'detail'
 }
 
 function startEdit() {
@@ -99,9 +104,12 @@ function cancelEdit() {
   isEditing.value = false
   isCreating.value = false
   saveError.value = ''
-  // 如果没有选中文档，自动选中第一个
+  // 如果没有选中文档，回到列表
   if (!selectedDoc.value && docsStore.items.length > 0) {
     selectedId.value = docsStore.items[0].id
+  }
+  if (!selectedDoc.value) {
+    mobilePanel.value = 'list'
   }
 }
 
@@ -146,7 +154,7 @@ function getDocSubtitle(doc) {
 
 <template>
   <div class="page-wide">
-    <div class="projects-layout">
+    <div class="projects-layout" :data-panel="mobilePanel">
 
       <!-- ══ 左侧列表 ══ -->
       <div class="projects-left">
@@ -198,6 +206,8 @@ function getDocSubtitle(doc) {
 
       <!-- ══ 右侧内容区 ══ -->
       <div class="projects-right">
+        <!-- 手机端返回按钮 -->
+        <button class="mobile-back-btn" @click="mobilePanel = 'list'; cancelEdit()">← 返回列表</button>
 
         <!-- 空状态 -->
         <div
@@ -381,6 +391,42 @@ function getDocSubtitle(doc) {
 .projects-right {
   flex: 1;
   min-width: 0;
+}
+
+/* 手机端返回按钮：桌面端隐藏 */
+.mobile-back-btn {
+  display: none;
+}
+
+/* ── 手机端响应式 ── */
+@media (max-width: 639px) {
+  .projects-layout {
+    display: block;
+  }
+  .projects-left {
+    display: block;
+  }
+  .projects-right {
+    display: none;
+  }
+  .projects-layout[data-panel="detail"] .projects-left {
+    display: none;
+  }
+  .projects-layout[data-panel="detail"] .projects-right {
+    display: block;
+  }
+  .mobile-back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    padding: 6px 12px;
+    margin-bottom: 16px;
+    color: var(--color-primary);
+    background: var(--color-primary-light);
+    border-color: transparent;
+    border-radius: var(--radius);
+  }
 }
 
 /* ── 表单行 ── */
