@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useProjectsStore } from '../stores/projects.js'
 import { useTasksStore } from '../stores/tasks.js'
 import { useMaterialsStore } from '../stores/materials.js'
@@ -30,6 +30,70 @@ const mobilePanel = ref('list')
 function selectProjectMobile(id) {
   selectedId.value = id
   mobilePanel.value = 'detail'
+}
+
+// ── 全局搜索 ──
+const searchQuery = ref('')
+const isSearching = computed(() => searchQuery.value.trim().length > 0)
+
+function stripHtml(html) {
+  return (html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function getSnippet(text, query, maxLen = 90) {
+  if (!text) return ''
+  const lowerText = text.toLowerCase()
+  const lowerQuery = query.toLowerCase()
+  const idx = lowerText.indexOf(lowerQuery)
+  if (idx === -1) return text.slice(0, maxLen) + (text.length > maxLen ? '…' : '')
+  const start = Math.max(0, idx - 30)
+  const end = Math.min(text.length, idx + query.length + 55)
+  return (start > 0 ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '')
+}
+
+const searchResults = computed(() => {
+  const q = searchQuery.value.trim()
+  if (!q) return []
+  const ql = q.toLowerCase()
+  const results = []
+  for (const project of projectsStore.items) {
+    for (const update of project.updates || []) {
+      const titleMatch = (update.title || '').toLowerCase().includes(ql)
+      const plainContent = stripHtml(update.content || '')
+      const contentMatch = plainContent.toLowerCase().includes(ql)
+      const tagsMatch = (update.tags || []).some(t => t.toLowerCase().includes(ql))
+      const projectMatch = project.name.toLowerCase().includes(ql)
+      if (titleMatch || contentMatch || tagsMatch || projectMatch) {
+        results.push({
+          projectId: project.id,
+          projectName: project.name,
+          update,
+          snippet: getSnippet(plainContent, q),
+        })
+      }
+    }
+  }
+  return results.sort((a, b) => new Date(b.update.created_at) - new Date(a.update.created_at))
+})
+
+// 搜索跳转：切换到对应专项 + 展开该条目 + 高亮滚动
+const highlightedUpdateId = ref(null)
+let highlightTimer = null
+
+async function jumpToResult(result) {
+  selectedId.value = result.projectId
+  mobilePanel.value = 'detail'
+  expandedUpdateId.value = result.update.id
+  highlightedUpdateId.value = result.update.id
+  clearTimeout(highlightTimer)
+  highlightTimer = setTimeout(() => { highlightedUpdateId.value = null }, 2200)
+  await nextTick()
+  const el = document.getElementById(`update-${result.update.id}`)
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
+function clearSearch() {
+  searchQuery.value = ''
 }
 
 // 若组件挂载时 items 为空（HMR 状态丢失或云端延迟），补救性重新拉取
@@ -435,41 +499,89 @@ function nowDatetimeLocal() {
 
 <template>
   <div class="page-wide projects-layout" :data-panel="mobilePanel" @click="showProjectMenu = false">
-    <!-- Left: Project List -->
+    <!-- Left: Project List + Search -->
     <div class="projects-left">
-      <div class="flex-between mb-12">
-        <div class="card-title" style="margin:0">专项列表</div>
-        <button class="small" @click="showNewProject = true">+ 新建</button>
-      </div>
-
-      <div v-if="showNewProject" class="card mb-8" style="background:var(--color-bg)">
-        <input type="text" v-model="newProjectName" placeholder="输入专项名称" @keydown.enter="createProject" />
-        <div class="flex gap-8 mt-8" style="justify-content:flex-end">
-          <button class="small" @click="showNewProject = false; newProjectName = ''">取消</button>
-          <button class="small primary" @click="createProject">创建</button>
+      <!-- 搜索框 -->
+      <div class="search-box mb-12">
+        <div class="search-input-wrap">
+          <span class="search-icon">⌕</span>
+          <input
+            type="text"
+            v-model="searchQuery"
+            placeholder="搜索所有专项进展…"
+            class="search-input"
+            @keydown.escape="clearSearch"
+          />
+          <button v-if="isSearching" class="search-clear" @click="clearSearch" title="清除搜索">×</button>
         </div>
       </div>
 
-      <div
-        v-for="p in projectsStore.items"
-        :key="p.id"
-        class="card"
-        :style="{
-          cursor: 'pointer',
-          borderColor: selectedId === p.id ? 'var(--color-primary)' : '',
-          background: selectedId === p.id ? 'var(--color-primary-light)' : '',
-        }"
-        @click="selectProjectMobile(p.id)"
-      >
-        <div class="flex-between">
-          <span style="font-weight:600;font-size:15px">{{ p.name }}</span>
-          <span class="tag" :style="{ color: projectStatusColors[p.status], borderColor: projectStatusColors[p.status] }">{{ projectStatusLabels[p.status] }}</span>
+      <!-- 搜索结果模式 -->
+      <template v-if="isSearching">
+        <div class="text-xs text-secondary mb-8" style="padding:0 2px">
+          找到 <strong>{{ searchResults.length }}</strong> 条结果
         </div>
-        <div class="flex-between mt-8">
-          <span class="text-xs text-secondary">{{ fmtTime(p.updated_at) }}</span>
-          <span class="text-xs text-secondary">{{ tasksStore.byProject(p.id, p.name).length }} 个任务</span>
+        <div v-if="searchResults.length === 0" class="card" style="text-align:center;padding:32px 16px;color:var(--color-text-secondary)">
+          <div style="font-size:24px;margin-bottom:8px">🔍</div>
+          <div class="text-sm">没有找到相关内容</div>
         </div>
-      </div>
+        <div
+          v-for="r in searchResults"
+          :key="r.update.id"
+          class="search-result-card"
+          :class="{ 'search-result-active': highlightedUpdateId === r.update.id }"
+          @click="jumpToResult(r)"
+        >
+          <div class="flex-between mb-4">
+            <span class="tag" style="font-size:11px;padding:1px 7px;color:var(--color-primary);border-color:var(--color-primary);background:var(--color-primary-light)">{{ r.projectName }}</span>
+            <span class="text-xs text-secondary">{{ fmtTime(r.update.created_at) }}</span>
+          </div>
+          <div class="text-sm" style="font-weight:600;line-height:1.4;margin-bottom:4px">
+            <span v-if="r.update.highlight" style="margin-right:3px">⭐</span>{{ r.update.title }}
+          </div>
+          <div v-if="r.snippet" class="text-xs text-secondary search-snippet">{{ r.snippet }}</div>
+          <div v-if="r.update.tags?.length" class="flex gap-4 mt-6" style="flex-wrap:wrap">
+            <span v-for="tag in r.update.tags" :key="tag" class="tag" style="font-size:11px;padding:1px 6px">{{ tag }}</span>
+          </div>
+        </div>
+      </template>
+
+      <!-- 普通列表模式 -->
+      <template v-else>
+        <div class="flex-between mb-12">
+          <div class="card-title" style="margin:0">专项列表</div>
+          <button class="small" @click="showNewProject = true">+ 新建</button>
+        </div>
+
+        <div v-if="showNewProject" class="card mb-8" style="background:var(--color-bg)">
+          <input type="text" v-model="newProjectName" placeholder="输入专项名称" @keydown.enter="createProject" />
+          <div class="flex gap-8 mt-8" style="justify-content:flex-end">
+            <button class="small" @click="showNewProject = false; newProjectName = ''">取消</button>
+            <button class="small primary" @click="createProject">创建</button>
+          </div>
+        </div>
+
+        <div
+          v-for="p in projectsStore.items"
+          :key="p.id"
+          class="card"
+          :style="{
+            cursor: 'pointer',
+            borderColor: selectedId === p.id ? 'var(--color-primary)' : '',
+            background: selectedId === p.id ? 'var(--color-primary-light)' : '',
+          }"
+          @click="selectProjectMobile(p.id)"
+        >
+          <div class="flex-between">
+            <span style="font-weight:600;font-size:15px">{{ p.name }}</span>
+            <span class="tag" :style="{ color: projectStatusColors[p.status], borderColor: projectStatusColors[p.status] }">{{ projectStatusLabels[p.status] }}</span>
+          </div>
+          <div class="flex-between mt-8">
+            <span class="text-xs text-secondary">{{ fmtTime(p.updated_at) }}</span>
+            <span class="text-xs text-secondary">{{ tasksStore.byProject(p.id, p.name).length }} 个任务</span>
+          </div>
+        </div>
+      </template>
     </div>
 
     <!-- Right: Project Detail -->
@@ -668,8 +780,9 @@ function nowDatetimeLocal() {
           <!-- Update card (layout unchanged) -->
           <div
             v-else
+            :id="`update-${item.data.id}`"
             class="mt-12 update-entry"
-            :class="{ 'update-highlight': item.data.highlight }"
+            :class="{ 'update-highlight': item.data.highlight, 'update-search-active': highlightedUpdateId === item.data.id }"
           >
             <!-- Edit mode -->
             <div v-if="editingUpdateId === item.data.id">
@@ -817,6 +930,98 @@ function nowDatetimeLocal() {
 .projects-right {
   flex: 1;
   min-width: 0;
+}
+
+/* ── 搜索框 ── */
+.search-box {
+  position: relative;
+}
+.search-input-wrap {
+  display: flex;
+  align-items: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0 10px;
+  gap: 6px;
+  transition: border-color 0.15s;
+}
+.search-input-wrap:focus-within {
+  border-color: var(--color-primary);
+}
+.search-icon {
+  font-size: 15px;
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
+  line-height: 1;
+  user-select: none;
+}
+.search-input {
+  flex: 1;
+  border: none !important;
+  background: transparent;
+  outline: none !important;
+  padding: 8px 0;
+  font-size: 13px;
+  color: var(--color-text);
+  box-shadow: none !important;
+}
+.search-input:focus {
+  border-color: transparent !important;
+}
+.search-clear {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 2px 0;
+}
+.search-clear:hover {
+  color: var(--color-text);
+  background: none;
+}
+
+/* ── 搜索结果卡片 ── */
+.search-result-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  box-shadow: var(--shadow);
+}
+.search-result-card:hover {
+  border-color: var(--color-primary);
+  box-shadow: 0 2px 8px rgba(79,110,247,0.1);
+}
+.search-result-active {
+  border-color: var(--color-primary) !important;
+  background: var(--color-primary-light) !important;
+}
+.search-snippet {
+  line-height: 1.5;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  margin-top: 2px;
+}
+.mt-6 { margin-top: 6px; }
+
+/* ── 搜索跳转高亮 ── */
+.update-search-active {
+  border-left-color: #f59e0b !important;
+  animation: search-flash 2.2s ease-out forwards;
+}
+@keyframes search-flash {
+  0%   { background: #fffbeb; border-left-color: #f59e0b; }
+  60%  { background: #fffbeb; border-left-color: #f59e0b; }
+  100% { background: transparent; border-left-color: var(--color-border); }
 }
 
 /* 手机端返回按钮：桌面端隐藏 */
