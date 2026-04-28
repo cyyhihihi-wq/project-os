@@ -1,6 +1,7 @@
 <script setup>
 import { ref, watch, onBeforeUnmount } from 'vue'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
+import { DOMParser as ProseMirrorDOMParser } from '@tiptap/pm/model'
 import StarterKit from '@tiptap/starter-kit'
 import Highlight from '@tiptap/extension-highlight'
 import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table'
@@ -92,6 +93,28 @@ function dataURLtoFile(dataUrl) {
 }
 
 /**
+ * 将 HTML 字符串以 ProseMirror Slice 方式插入编辑器（正确保留列表/表格等块级结构）。
+ *
+ * 为什么不用 insertContent(html)：
+ *   Tiptap 的 insertContent 内部调用 DOMParser.parse()，得到的是 Document 节点，
+ *   插入时会把块级结构（ul/ol/li）降级成纯段落。
+ * 正确做法：
+ *   DOMParser.parseSlice() 专为"局部片段"设计，ProseMirror 内部 paste 也走此路径，
+ *   能保留列表、表格、标题等完整块级层级。
+ */
+function insertHtmlAtCursor(html) {
+  if (!editor.value) return
+  const container = document.createElement('div')
+  container.innerHTML = html
+  const slice = ProseMirrorDOMParser
+    .fromSchema(editor.value.schema)
+    .parseSlice(container, { preserveWhitespace: false })
+  const tr = editor.value.state.tr.replaceSelection(slice)
+  editor.value.view.dispatch(tr)
+  editor.value.view.focus()
+}
+
+/**
  * 批量替换编辑器 HTML 中的 objectURL → 永久 URL，只做一次 setContent。
  */
 function applyReplacements(replacements) {
@@ -179,7 +202,8 @@ async function pasteHtmlWithImages(html, clipboardImageFiles = []) {
   }
 
   // 插入处理后的 HTML（img src 全为 objectURL / https，或已替换为占位符）
-  editor.value?.chain().focus().insertContent(doc.body.innerHTML).run()
+  // 使用 parseSlice + replaceSelection，正确保留列表/表格等块级结构
+  insertHtmlAtCursor(doc.body.innerHTML)
 
   if (!uploadTasks.length) {
     if (placeholderCount > 0) {
