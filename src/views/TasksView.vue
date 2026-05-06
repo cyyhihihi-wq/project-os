@@ -358,6 +358,31 @@ async function genWeekSummary() {
   }
 }
 
+// -- 完成时间辅助 --
+function toDatetimeLocal(isoStr) {
+  if (!isoStr) return ''
+  const d = new Date(isoStr)
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function weekNoFromDate(isoStr) {
+  if (!isoStr) return weekInfo.value.weekNo
+  const date = new Date(isoStr)
+  const day = date.getDay()
+  const diff = date.getDate() - day + (day === 0 ? -6 : 1)
+  const monday = new Date(date)
+  monday.setDate(diff)
+  const yearStart = new Date(monday.getFullYear(), 0, 1)
+  return Math.ceil(((monday - yearStart) / 86400000 + yearStart.getDay() + 1) / 7)
+}
+
+function changeCompletedAt(task, datetimeLocalValue) {
+  if (!datetimeLocalValue) return
+  const iso = new Date(datetimeLocalValue).toISOString()
+  tasksStore.update(task.id, { completed_at: iso, week: weekNoFromDate(iso) })
+}
+
 // -- Format --
 function fmtTime(iso) {
   if (!iso) return ''
@@ -576,6 +601,10 @@ function taskTimeLabel(task) {
                   <label class="text-xs text-secondary">截止时间</label>
                   <input type="date" :value="task.due" @change="updateTask(task, 'due', $event.target.value)" />
                 </div>
+              </div>
+              <div class="mb-8">
+                <label class="text-xs text-secondary">完成时间（修改后自动归入对应周）</label>
+                <input type="datetime-local" :value="toDatetimeLocal(task.completed_at)" @change="changeCompletedAt(task, $event.target.value)" />
               </div>
               <div class="mb-8">
                 <label class="text-xs text-secondary">执行备注 & 子步骤</label>
