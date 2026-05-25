@@ -17,10 +17,14 @@ export const useDocsStore = defineStore('docs', {
 
   getters: {
     sorted: (state) => [...state.items].sort((a, b) => {
-      // 阶段性用 date，周期性用 period_end（都降序）
-      const da = a.type === 'milestone' ? (a.date || '') : (a.period_end || a.period_start || '')
-      const db = b.type === 'milestone' ? (b.date || '') : (b.period_end || b.period_start || '')
-      return db.localeCompare(da)
+      // 阶段性用 date，周期性用 period_end；无标记日期时降级到 updated_at
+      const key = (d) => {
+        const marked = d.type === 'milestone'
+          ? (d.date || '')
+          : (d.period_end || d.period_start || '')
+        return marked || d.updated_at || d.created_at || ''
+      }
+      return key(b).localeCompare(key(a))
     }),
 
     // 给定日期范围，自动匹配周期性文档

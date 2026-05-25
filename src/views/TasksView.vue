@@ -276,7 +276,7 @@ const tabDoneTasks = computed(() => {
   )
 })
 
-const showDone = ref(false)
+const showDone = ref(true)
 
 // -- 本周工作总结 --
 const weekSummary = ref({ work: '', feeling: '', status: 'draft' })
@@ -460,7 +460,7 @@ function taskTimeLabel(task) {
         :key="tab.id"
         class="tab-btn"
         :class="{ active: tab.id === activeTab }"
-        @click="activeTab = tab.id; showDone = false"
+        @click="activeTab = tab.id"
       >
         {{ tab.name }}
       </button>
