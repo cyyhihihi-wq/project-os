@@ -63,7 +63,9 @@ function getFridayOfWeek(info) {
 }
 
 const newDue = ref(getFridayOfWeek(weekInfo.value))
-watch(weekInfo, (info) => { newDue.value = getFridayOfWeek(info) })
+watch(weekInfo, (info) => {
+  if (activeTab.value !== '__today__') newDue.value = getFridayOfWeek(info)
+})
 
 function addTask() {
   if (!newTitle.value.trim()) return
@@ -76,9 +78,13 @@ function addTask() {
     week: weekInfo.value.weekNo,
   })
   newTitle.value = ''
-  // 重置为当前 tab 对应的项目，而不是清空
-  newProjectId.value = activeTab.value === '__none__' ? '' : activeTab.value
-  newDue.value = getFridayOfWeek(weekInfo.value)
+  if (activeTab.value === '__today__') {
+    newProjectId.value = ''
+    newDue.value = todayStr.value
+  } else {
+    newProjectId.value = activeTab.value
+    newDue.value = getFridayOfWeek(weekInfo.value)
+  }
   showInputOptions.value = false
 }
 
@@ -139,11 +145,10 @@ function taskTabId(task) {
 const projectTabs = computed(() => {
   const seenIds = new Set()
   const tabs = []
-  let hasNone = false
 
   for (const t of tasks.value) {
     const tid = taskTabId(t)
-    if (tid === '__none__') { hasNone = true; continue }
+    if (tid === '__none__') continue // 无专项不单独成 tab，归入今日 Todo
     if (!seenIds.has(tid)) {
       seenIds.add(tid)
       const p = projectsStore.getById(tid)
@@ -152,12 +157,12 @@ const projectTabs = computed(() => {
   }
 
   tabs.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
-  // 无专项排第一（固定入口）
-  if (hasNone) tabs.unshift({ id: '__none__', name: '无专项' })
+  // 今日 Todo 始终排第一（固定聚合入口）
+  tabs.unshift({ id: '__today__', name: '今日 Todo' })
   return tabs
 })
 
-const activeTab = ref('__none__')
+const activeTab = ref('__today__')
 
 // tabs 变化时保持 activeTab 有效
 watch(projectTabs, (tabs) => {
@@ -166,9 +171,15 @@ watch(projectTabs, (tabs) => {
   }
 }, { immediate: true })
 
-// activeTab 切换时同步 newProjectId（默认专项跟随当前 tab）
+// activeTab 切换时同步 newProjectId 和 newDue
 watch(activeTab, (tabId) => {
-  newProjectId.value = tabId === '__none__' ? '' : tabId
+  if (tabId === '__today__') {
+    newProjectId.value = ''
+    newDue.value = todayStr.value
+  } else {
+    newProjectId.value = tabId
+    newDue.value = getFridayOfWeek(weekInfo.value)
+  }
 }, { immediate: true })
 
 // -- 跨周顺延（虚拟，不改数据）--
@@ -277,6 +288,32 @@ const tabDoneTasks = computed(() => {
 })
 
 const showDone = ref(true)
+
+// -- 今日 Todo tab --
+const todayTabTasks = computed(() =>
+  tasks.value.filter(t => t.due === todayStr.value)
+)
+const todayTabActive = computed(() =>
+  [...todayTabTasks.value.filter(t => t.status !== 'done')]
+    .sort((a, b) => {
+      // 顺延任务优先
+      const aC = carriedSet.value.has(a.id) ? 0 : 1
+      const bC = carriedSet.value.has(b.id) ? 0 : 1
+      return aC - bC
+    })
+)
+const todayTabDone = computed(() =>
+  todayTabTasks.value.filter(t => t.status === 'done')
+)
+const todayMotivation = computed(() => {
+  const total = todayTabTasks.value.length
+  const done = todayTabDone.value.length
+  const remaining = todayTabActive.value.length
+  if (total === 0) return '今日暂无任务安排，享受轻松时光 ☀️'
+  if (remaining === 0) return `🎉 今日 ${total} 件任务全部完成！辛苦了，好好休息~`
+  if (done === 0) return `今日工作 ${total} 件，加油，逐个击破！💪`
+  return `今日工作 ${total} 件，已完成 ${done} 件，还有 ${remaining} 件就收工啦！`
+})
 
 // -- 本周工作总结 --
 const weekSummary = ref({ work: '', feeling: '', status: 'draft' })
@@ -469,120 +506,36 @@ function taskTimeLabel(task) {
     <!-- Task list for active tab -->
     <div v-if="projectTabs.length > 0" class="section">
 
-      <!-- 顺延任务（真正超期未完成，仅当前周显示） -->
-      <template v-if="tabCarriedTasks.length > 0">
-        <div class="group-status-label group-carried-label">上周顺延 ({{ tabCarriedTasks.length }})</div>
-        <div
-          v-for="task in tabCarriedTasks"
-          :key="task.id"
-          class="card task-card task-carried-card"
-          :class="{ 'task-due-today-card': isDueToday(task) }"
-        >
-          <div class="flex-between" @click="toggle(task.id)" style="cursor:pointer">
-            <div class="flex-center gap-8">
-              <span class="task-circle circle-doing" @click.stop="cycleStatus(task)"></span>
-              <span>{{ task.title }}</span>
-              <span v-if="isDueToday(task)" class="badge-today">今日处理</span>
-            </div>
-            <span class="text-xs text-secondary">{{ taskTimeLabel(task) }}</span>
-          </div>
-          <div v-if="expandedId === task.id" class="task-detail">
-            <div class="mb-8">
-              <label class="text-xs text-secondary">标题</label>
-              <input type="text" :value="task.title" @change="updateTask(task, 'title', $event.target.value)" />
-            </div>
-            <div class="flex gap-12 mb-8">
-              <div style="flex:1">
-                <label class="text-xs text-secondary">所属专项</label>
-                <select :value="task.project_id || ''" @change="onTaskProjectChange(task, $event.target.value)">
-                  <option value="">无</option>
-                  <option v-for="p in projectsStore.items" :key="p.id" :value="p.id">{{ p.name }}</option>
-                </select>
-              </div>
-              <div style="flex:1">
-                <label class="text-xs text-secondary">截止时间</label>
-                <input type="date" :value="task.due" @change="updateTask(task, 'due', $event.target.value)" />
-              </div>
-            </div>
-            <div class="mb-8">
-              <label class="text-xs text-secondary">执行备注 & 子步骤</label>
-              <RichEditor :modelValue="task.note" @update:modelValue="updateTask(task, 'note', $event)" />
-            </div>
-            <div class="flex gap-8">
-              <button class="small primary" @click="updateTask(task, 'status', 'done')">标为完成（归入本周）</button>
-              <button class="small" style="color:var(--color-danger);margin-left:auto" @click="removeTask(task.id)">删除</button>
-            </div>
-          </div>
-        </div>
-      </template>
+      <!-- ══ 今日 Todo 视图 ══ -->
+      <template v-if="activeTab === '__today__'">
 
-      <!-- Doing tasks -->
-      <template v-if="tabActiveTasks.length > 0">
-        <div class="group-status-label">进行中 ({{ tabActiveTasks.length }})</div>
+        <!-- 激励横幅 -->
         <div
-          v-for="task in tabActiveTasks"
-          :key="task.id"
-          class="card task-card"
-          :class="{ 'task-due-today-card': isDueToday(task) }"
-        >
-          <div class="flex-between" @click="toggle(task.id)" style="cursor:pointer">
-            <div class="flex-center gap-8">
-              <span
-                class="task-circle circle-doing"
-                @click.stop="cycleStatus(task)"
-              ></span>
-              <span>{{ task.title }}</span>
-              <span v-if="isDueToday(task)" class="badge-today">今日处理</span>
-            </div>
-            <span class="text-xs text-secondary">{{ taskTimeLabel(task) }}</span>
-          </div>
-          <div v-if="expandedId === task.id" class="task-detail">
-            <div class="mb-8">
-              <label class="text-xs text-secondary">标题</label>
-              <input type="text" :value="task.title" @change="updateTask(task, 'title', $event.target.value)" />
-            </div>
-            <div class="flex gap-12 mb-8">
-              <div style="flex:1">
-                <label class="text-xs text-secondary">所属专项</label>
-                <select :value="task.project_id || ''" @change="onTaskProjectChange(task, $event.target.value)">
-                  <option value="">无</option>
-                  <option v-for="p in projectsStore.items" :key="p.id" :value="p.id">{{ p.name }}</option>
-                </select>
-              </div>
-              <div style="flex:1">
-                <label class="text-xs text-secondary">截止时间</label>
-                <input type="date" :value="task.due" @change="updateTask(task, 'due', $event.target.value)" />
-              </div>
-            </div>
-            <div class="mb-8">
-              <label class="text-xs text-secondary">执行备注 & 子步骤</label>
-              <RichEditor :modelValue="task.note" @update:modelValue="updateTask(task, 'note', $event)" />
-            </div>
-            <div class="flex gap-8">
-              <button class="small primary" @click="updateTask(task, 'status', 'doing')">进行中</button>
-              <button class="small" @click="updateTask(task, 'status', 'done')">已完成</button>
-              <button class="small" style="color:var(--color-danger);margin-left:auto" @click="removeTask(task.id)">删除</button>
-            </div>
-          </div>
-        </div>
-      </template>
+          class="today-banner"
+          :class="{
+            'today-banner-empty': todayTabTasks.length === 0,
+            'today-banner-done': todayTabActive.length === 0 && todayTabTasks.length > 0,
+            'today-banner-progress': todayTabActive.length > 0,
+          }"
+        >{{ todayMotivation }}</div>
 
-      <!-- Done tasks with expand/collapse -->
-      <template v-if="tabDoneTasks.length > 0">
-        <div class="group-status-label group-done-label flex-between">
-          <span>已完成 ({{ tabDoneTasks.length }})</span>
-          <button class="small" style="font-weight:normal" @click="showDone = !showDone">
-            {{ showDone ? '收起' : '展开' }}
-          </button>
-        </div>
-        <template v-if="showDone">
-          <div v-for="task in tabDoneTasks" :key="task.id" class="card task-card task-done-card">
+        <!-- 今日待办 -->
+        <template v-if="todayTabActive.length > 0">
+          <div class="group-status-label">今日待办 ({{ todayTabActive.length }})</div>
+          <div
+            v-for="task in todayTabActive"
+            :key="task.id"
+            class="card task-card"
+            :class="{ 'task-carried-card': carriedSet.has(task.id) }"
+          >
             <div class="flex-between" @click="toggle(task.id)" style="cursor:pointer">
-              <div class="flex-center gap-8">
-                <span class="task-circle circle-done" @click.stop="cycleStatus(task)">&#10003;</span>
-                <span style="text-decoration:line-through;opacity:0.45">{{ task.title }}</span>
+              <div class="flex-center gap-8" style="flex:1;min-width:0">
+                <span class="task-circle circle-doing" @click.stop="cycleStatus(task)"></span>
+                <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ task.title }}</span>
+                <span v-if="task.project" class="badge-project">{{ task.project }}</span>
+                <span v-if="carriedSet.has(task.id)" class="badge-carried">顺延</span>
               </div>
-              <span class="text-xs" style="color:var(--color-success)">{{ taskTimeLabel(task) }}</span>
+              <span class="text-xs text-secondary" style="flex-shrink:0;margin-left:8px">{{ taskTimeLabel(task) }}</span>
             </div>
             <div v-if="expandedId === task.id" class="task-detail">
               <div class="mb-8">
@@ -603,30 +556,241 @@ function taskTimeLabel(task) {
                 </div>
               </div>
               <div class="mb-8">
-                <label class="text-xs text-secondary">完成时间（修改后自动归入对应周）</label>
-                <input type="datetime-local" :value="toDatetimeLocal(task.completed_at)" @change="changeCompletedAt(task, $event.target.value)" />
+                <label class="text-xs text-secondary">执行备注 & 子步骤</label>
+                <RichEditor :modelValue="task.note" @update:modelValue="updateTask(task, 'note', $event)" />
+              </div>
+              <div class="flex gap-8">
+                <button
+                  class="small primary"
+                  @click="carriedSet.has(task.id) ? updateTask(task, 'status', 'done') : cycleStatus(task)"
+                >{{ carriedSet.has(task.id) ? '标为完成（归入本周）' : '已完成' }}</button>
+                <button class="small" style="color:var(--color-danger);margin-left:auto" @click="removeTask(task.id)">删除</button>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- 今日已完成 -->
+        <template v-if="todayTabDone.length > 0">
+          <div class="group-status-label group-done-label flex-between">
+            <span>今日已完成 ({{ todayTabDone.length }})</span>
+            <button class="small" style="font-weight:normal" @click="showDone = !showDone">
+              {{ showDone ? '收起' : '展开' }}
+            </button>
+          </div>
+          <template v-if="showDone">
+            <div v-for="task in todayTabDone" :key="task.id" class="card task-card task-done-card">
+              <div class="flex-between" @click="toggle(task.id)" style="cursor:pointer">
+                <div class="flex-center gap-8" style="flex:1;min-width:0">
+                  <span class="task-circle circle-done" @click.stop="cycleStatus(task)">&#10003;</span>
+                  <span style="text-decoration:line-through;opacity:0.45;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ task.title }}</span>
+                  <span v-if="task.project" class="badge-project">{{ task.project }}</span>
+                </div>
+                <span class="text-xs" style="color:var(--color-success);flex-shrink:0;margin-left:8px">{{ taskTimeLabel(task) }}</span>
+              </div>
+              <div v-if="expandedId === task.id" class="task-detail">
+                <div class="mb-8">
+                  <label class="text-xs text-secondary">标题</label>
+                  <input type="text" :value="task.title" @change="updateTask(task, 'title', $event.target.value)" />
+                </div>
+                <div class="flex gap-12 mb-8">
+                  <div style="flex:1">
+                    <label class="text-xs text-secondary">所属专项</label>
+                    <select :value="task.project_id || ''" @change="onTaskProjectChange(task, $event.target.value)">
+                      <option value="">无</option>
+                      <option v-for="p in projectsStore.items" :key="p.id" :value="p.id">{{ p.name }}</option>
+                    </select>
+                  </div>
+                  <div style="flex:1">
+                    <label class="text-xs text-secondary">截止时间</label>
+                    <input type="date" :value="task.due" @change="updateTask(task, 'due', $event.target.value)" />
+                  </div>
+                </div>
+                <div class="mb-8">
+                  <label class="text-xs text-secondary">完成时间（修改后自动归入对应周）</label>
+                  <input type="datetime-local" :value="toDatetimeLocal(task.completed_at)" @change="changeCompletedAt(task, $event.target.value)" />
+                </div>
+                <div class="mb-8">
+                  <label class="text-xs text-secondary">执行备注 & 子步骤</label>
+                  <RichEditor :modelValue="task.note" @update:modelValue="updateTask(task, 'note', $event)" />
+                </div>
+                <div class="flex gap-8">
+                  <button class="small" @click="updateTask(task, 'status', 'doing')">进行中</button>
+                  <button class="small primary" @click="updateTask(task, 'status', 'done')">已完成</button>
+                  <button class="small" style="color:var(--color-danger);margin-left:auto" @click="removeTask(task.id)">删除</button>
+                </div>
+              </div>
+            </div>
+          </template>
+        </template>
+
+        <!-- 今日无任务空态 -->
+        <div
+          v-if="todayTabTasks.length === 0"
+          class="text-secondary text-sm"
+          style="padding:24px 0;text-align:center"
+        >今日暂无任务安排</div>
+
+      </template>
+
+      <!-- ══ 专项视图 ══ -->
+      <template v-else>
+
+        <!-- 顺延任务 -->
+        <template v-if="tabCarriedTasks.length > 0">
+          <div class="group-status-label group-carried-label">上周顺延 ({{ tabCarriedTasks.length }})</div>
+          <div
+            v-for="task in tabCarriedTasks"
+            :key="task.id"
+            class="card task-card task-carried-card"
+            :class="{ 'task-due-today-card': isDueToday(task) }"
+          >
+            <div class="flex-between" @click="toggle(task.id)" style="cursor:pointer">
+              <div class="flex-center gap-8">
+                <span class="task-circle circle-doing" @click.stop="cycleStatus(task)"></span>
+                <span>{{ task.title }}</span>
+                <span v-if="isDueToday(task)" class="badge-today">今日处理</span>
+              </div>
+              <span class="text-xs text-secondary">{{ taskTimeLabel(task) }}</span>
+            </div>
+            <div v-if="expandedId === task.id" class="task-detail">
+              <div class="mb-8">
+                <label class="text-xs text-secondary">标题</label>
+                <input type="text" :value="task.title" @change="updateTask(task, 'title', $event.target.value)" />
+              </div>
+              <div class="flex gap-12 mb-8">
+                <div style="flex:1">
+                  <label class="text-xs text-secondary">所属专项</label>
+                  <select :value="task.project_id || ''" @change="onTaskProjectChange(task, $event.target.value)">
+                    <option value="">无</option>
+                    <option v-for="p in projectsStore.items" :key="p.id" :value="p.id">{{ p.name }}</option>
+                  </select>
+                </div>
+                <div style="flex:1">
+                  <label class="text-xs text-secondary">截止时间</label>
+                  <input type="date" :value="task.due" @change="updateTask(task, 'due', $event.target.value)" />
+                </div>
               </div>
               <div class="mb-8">
                 <label class="text-xs text-secondary">执行备注 & 子步骤</label>
                 <RichEditor :modelValue="task.note" @update:modelValue="updateTask(task, 'note', $event)" />
               </div>
               <div class="flex gap-8">
-                <button class="small" @click="updateTask(task, 'status', 'doing')">进行中</button>
-                <button class="small primary" @click="updateTask(task, 'status', 'done')">已完成</button>
+                <button class="small primary" @click="updateTask(task, 'status', 'done')">标为完成（归入本周）</button>
                 <button class="small" style="color:var(--color-danger);margin-left:auto" @click="removeTask(task.id)">删除</button>
               </div>
             </div>
           </div>
         </template>
-      </template>
 
-      <div
-        v-if="tabActiveTasks.length === 0 && tabDoneTasks.length === 0 && tabCarriedTasks.length === 0"
-        class="text-secondary text-sm"
-        style="padding:16px 0;text-align:center"
-      >
-        暂无任务
-      </div>
+        <!-- 进行中 -->
+        <template v-if="tabActiveTasks.length > 0">
+          <div class="group-status-label">进行中 ({{ tabActiveTasks.length }})</div>
+          <div
+            v-for="task in tabActiveTasks"
+            :key="task.id"
+            class="card task-card"
+            :class="{ 'task-due-today-card': isDueToday(task) }"
+          >
+            <div class="flex-between" @click="toggle(task.id)" style="cursor:pointer">
+              <div class="flex-center gap-8">
+                <span class="task-circle circle-doing" @click.stop="cycleStatus(task)"></span>
+                <span>{{ task.title }}</span>
+                <span v-if="isDueToday(task)" class="badge-today">今日处理</span>
+              </div>
+              <span class="text-xs text-secondary">{{ taskTimeLabel(task) }}</span>
+            </div>
+            <div v-if="expandedId === task.id" class="task-detail">
+              <div class="mb-8">
+                <label class="text-xs text-secondary">标题</label>
+                <input type="text" :value="task.title" @change="updateTask(task, 'title', $event.target.value)" />
+              </div>
+              <div class="flex gap-12 mb-8">
+                <div style="flex:1">
+                  <label class="text-xs text-secondary">所属专项</label>
+                  <select :value="task.project_id || ''" @change="onTaskProjectChange(task, $event.target.value)">
+                    <option value="">无</option>
+                    <option v-for="p in projectsStore.items" :key="p.id" :value="p.id">{{ p.name }}</option>
+                  </select>
+                </div>
+                <div style="flex:1">
+                  <label class="text-xs text-secondary">截止时间</label>
+                  <input type="date" :value="task.due" @change="updateTask(task, 'due', $event.target.value)" />
+                </div>
+              </div>
+              <div class="mb-8">
+                <label class="text-xs text-secondary">执行备注 & 子步骤</label>
+                <RichEditor :modelValue="task.note" @update:modelValue="updateTask(task, 'note', $event)" />
+              </div>
+              <div class="flex gap-8">
+                <button class="small primary" @click="updateTask(task, 'status', 'doing')">进行中</button>
+                <button class="small" @click="updateTask(task, 'status', 'done')">已完成</button>
+                <button class="small" style="color:var(--color-danger);margin-left:auto" @click="removeTask(task.id)">删除</button>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- 已完成 -->
+        <template v-if="tabDoneTasks.length > 0">
+          <div class="group-status-label group-done-label flex-between">
+            <span>已完成 ({{ tabDoneTasks.length }})</span>
+            <button class="small" style="font-weight:normal" @click="showDone = !showDone">
+              {{ showDone ? '收起' : '展开' }}
+            </button>
+          </div>
+          <template v-if="showDone">
+            <div v-for="task in tabDoneTasks" :key="task.id" class="card task-card task-done-card">
+              <div class="flex-between" @click="toggle(task.id)" style="cursor:pointer">
+                <div class="flex-center gap-8">
+                  <span class="task-circle circle-done" @click.stop="cycleStatus(task)">&#10003;</span>
+                  <span style="text-decoration:line-through;opacity:0.45">{{ task.title }}</span>
+                </div>
+                <span class="text-xs" style="color:var(--color-success)">{{ taskTimeLabel(task) }}</span>
+              </div>
+              <div v-if="expandedId === task.id" class="task-detail">
+                <div class="mb-8">
+                  <label class="text-xs text-secondary">标题</label>
+                  <input type="text" :value="task.title" @change="updateTask(task, 'title', $event.target.value)" />
+                </div>
+                <div class="flex gap-12 mb-8">
+                  <div style="flex:1">
+                    <label class="text-xs text-secondary">所属专项</label>
+                    <select :value="task.project_id || ''" @change="onTaskProjectChange(task, $event.target.value)">
+                      <option value="">无</option>
+                      <option v-for="p in projectsStore.items" :key="p.id" :value="p.id">{{ p.name }}</option>
+                    </select>
+                  </div>
+                  <div style="flex:1">
+                    <label class="text-xs text-secondary">截止时间</label>
+                    <input type="date" :value="task.due" @change="updateTask(task, 'due', $event.target.value)" />
+                  </div>
+                </div>
+                <div class="mb-8">
+                  <label class="text-xs text-secondary">完成时间（修改后自动归入对应周）</label>
+                  <input type="datetime-local" :value="toDatetimeLocal(task.completed_at)" @change="changeCompletedAt(task, $event.target.value)" />
+                </div>
+                <div class="mb-8">
+                  <label class="text-xs text-secondary">执行备注 & 子步骤</label>
+                  <RichEditor :modelValue="task.note" @update:modelValue="updateTask(task, 'note', $event)" />
+                </div>
+                <div class="flex gap-8">
+                  <button class="small" @click="updateTask(task, 'status', 'doing')">进行中</button>
+                  <button class="small primary" @click="updateTask(task, 'status', 'done')">已完成</button>
+                  <button class="small" style="color:var(--color-danger);margin-left:auto" @click="removeTask(task.id)">删除</button>
+                </div>
+              </div>
+            </div>
+          </template>
+        </template>
+
+        <div
+          v-if="tabActiveTasks.length === 0 && tabDoneTasks.length === 0 && tabCarriedTasks.length === 0"
+          class="text-secondary text-sm"
+          style="padding:16px 0;text-align:center"
+        >暂无任务</div>
+
+      </template>
     </div>
 
     <div v-else class="text-secondary text-sm section" style="padding:16px 0;text-align:center">
@@ -860,6 +1024,53 @@ function taskTimeLabel(task) {
   color: #10b981;
   font-size: 15px;
   line-height: 1;
+}
+
+/* 今日 Todo 激励横幅 */
+.today-banner {
+  border-radius: 10px;
+  padding: 13px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 14px;
+  letter-spacing: 0.2px;
+  line-height: 1.5;
+}
+.today-banner-empty {
+  background: #f0f9ff;
+  color: #0369a1;
+  border: 1px solid #bae6fd;
+}
+.today-banner-progress {
+  background: #fffbeb;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+.today-banner-done {
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+/* 今日任务项目徽章 */
+.badge-project {
+  font-size: 11px;
+  background: #ede9fe;
+  color: #6d28d9;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.badge-carried {
+  font-size: 10px;
+  background: #fef3c7;
+  color: #b45309;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+  flex-shrink: 0;
 }
 
 /* ── 手机端响应式 ── */
