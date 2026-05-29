@@ -13,6 +13,7 @@ import { useStylesStore } from './stores/styles.js'
 import { useTagsStore } from './stores/tags.js'
 import { useAiDocumentsStore } from './stores/aiDocuments.js'
 import { useDocsStore } from './stores/docs.js'
+import { useContactsStore } from './stores/contacts.js'
 
 ;(async () => {
   const app = createApp(App)
@@ -42,6 +43,7 @@ import { useDocsStore } from './stores/docs.js'
   stylesStore.init()
   useTagsStore(pinia).init()
   useDocsStore(pinia).init()
+  useContactsStore(pinia).init()
 
   // 云端只读初始化：mount 前 await，首屏直接呈现云端数据，不产生闪烁
   // 失败时静默降级到本地数据，不阻断启动

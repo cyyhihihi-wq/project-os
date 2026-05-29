@@ -122,6 +122,44 @@ function htmlToTextWithImages(html, imgCounter) {
   return htmlToText(modified)
 }
 
+// ── 接力链辅助 ──
+function renderHandoffChainTxt(task, imgCounter) {
+  const handoffs = (task.handoffs || []).filter(h => h.status === 'done' || h.status === 'pending')
+  if (!handoffs.length) return ''
+  const lines = []
+  lines.push('  接力记录：')
+  for (const h of handoffs) {
+    const catStr = h.assignee_category ? `(${h.assignee_category})` : ''
+    const statusStr = h.status === 'pending' ? '（待验收）' : `（验收于 ${fmtDate(h.completed_at)}）`
+    lines.push(`    → 移交给 ${h.assignee}${catStr} | 截止 ${h.due || '-'}  ${statusStr}`)
+    if (h.hand_note) lines.push(`      移交说明：${h.hand_note}`)
+    if (h.completion_note) lines.push(`      验收说明：${h.completion_note}`)
+    if (h.linked_project_id) lines.push(`      已同步专项进展（内容可能已更新）`)
+  }
+  return lines.join('\n')
+}
+
+function renderHandoffChainHtml(task) {
+  const handoffs = (task.handoffs || []).filter(h => h.status === 'done' || h.status === 'pending')
+  if (!handoffs.length) return ''
+  let html = '<div style="margin-top:6px;padding:6px 10px;background:#fffbeb;border-left:3px solid #fcd34d;border-radius:0 4px 4px 0;font-size:12px">'
+  html += '<div style="font-weight:700;color:#92400e;margin-bottom:4px">接力记录</div>'
+  for (const h of handoffs) {
+    const catStr = h.assignee_category ? `（${escapeHtml(h.assignee_category)}）` : ''
+    const statusStr = h.status === 'pending'
+      ? '<span style="color:#d97706;font-weight:600">待验收</span>'
+      : `<span style="color:#16a34a">验收于 ${fmtDate(h.completed_at)}</span>`
+    html += `<div style="margin-bottom:4px">`
+    html += `<span style="color:#555">→ </span><strong>${escapeHtml(h.assignee)}</strong>${catStr} · 截止 ${escapeHtml(h.due || '-')} · ${statusStr}`
+    if (h.hand_note) html += `<div style="color:#666;padding-left:12px">移交：${escapeHtml(h.hand_note)}</div>`
+    if (h.completion_note) html += `<div style="color:#666;padding-left:12px">验收：${escapeHtml(h.completion_note)}</div>`
+    if (h.linked_project_id) html += `<div style="color:#3b82f6;padding-left:12px;font-size:11px">已同步专项进展（内容可能已更新）</div>`
+    html += '</div>'
+  }
+  html += '</div>'
+  return html
+}
+
 // 按选中专项过滤任务
 function getTasksToExport() {
   const selectedProjects = projectsStore.items.filter(p => selectedProjectIds.value.includes(p.id))
@@ -136,6 +174,12 @@ function getTasksToExport() {
     }
     return true
   })
+}
+
+function getDocsToExport() {
+  const periodicDocs = [...matchedPeriodicDocs.value]
+  const milestoneDocs = docsStore.items.filter(d => d.type === 'milestone' && selectedMilestoneDocIds.value.includes(d.id))
+  return [...periodicDocs, ...milestoneDocs]
 }
 
 // ══════════════════════════════════════
@@ -166,6 +210,30 @@ function generateTxt() {
     lines.push(SEP2)
     rulesText.value.trim().split('\n').forEach(l => lines.push(l))
     lines.push(SEP2)
+  }
+
+  // ── 文档成果 ──
+  if (includeDocs.value) {
+    const docsToExport = getDocsToExport()
+    if (docsToExport.length > 0) {
+      lines.push('')
+      lines.push('')
+      lines.push(SEP1)
+      lines.push(`【文档成果】  共 ${docsToExport.length} 篇`)
+      lines.push(SEP1)
+      for (const doc of docsToExport) {
+        lines.push('')
+        const typeLabel = doc.type === 'milestone'
+          ? `阶段性 · ${doc.date || ''}`
+          : `${PERIOD_LABELS[doc.period_type] || doc.period_type} · ${[doc.period_start, doc.period_end].filter(Boolean).join(' ~ ')}`
+        const projectStr = doc.project ? `  [${doc.project}]` : ''
+        lines.push(`▌ ${doc.title}  （${typeLabel}）${projectStr}`)
+        lines.push(SEP2)
+        const body = htmlToTextWithImages(doc.content, imgCounter)
+        if (body) body.split('\n').forEach(l => { if (l.trim()) lines.push('  ' + l) })
+        else lines.push('  （无内容）')
+      }
+    }
   }
 
   // ── 专项进展 ──
@@ -235,36 +303,11 @@ function generateTxt() {
               lines.push(`  备注：${brief}${noteText.length > 120 ? '…' : ''}`)
             }
           }
+          const handoffChain = renderHandoffChainTxt(t, imgCounter)
+          if (handoffChain) lines.push(handoffChain)
           lines.push(`  创建：${fmtDate(t.created_at)}`)
           lines.push('')
         }
-      }
-    }
-  }
-
-  // ── 文档成果 ──
-  if (includeDocs.value) {
-    const docsToExport = [
-      ...matchedPeriodicDocs.value,
-      ...docsStore.items.filter(d => d.type === 'milestone' && selectedMilestoneDocIds.value.includes(d.id)),
-    ]
-    if (docsToExport.length > 0) {
-      lines.push('')
-      lines.push('')
-      lines.push(SEP1)
-      lines.push(`【文档成果】  共 ${docsToExport.length} 篇`)
-      lines.push(SEP1)
-      for (const doc of docsToExport) {
-        lines.push('')
-        const typeLabel = doc.type === 'milestone'
-          ? `阶段性 · ${doc.date || ''}`
-          : `${PERIOD_LABELS[doc.period_type] || doc.period_type} · ${[doc.period_start, doc.period_end].filter(Boolean).join(' ~ ')}`
-        const projectStr = doc.project ? `  [${doc.project}]` : ''
-        lines.push(`▌ ${doc.title}  （${typeLabel}）${projectStr}`)
-        lines.push(SEP2)
-        const body = htmlToTextWithImages(doc.content, imgCounter)
-        if (body) body.split('\n').forEach(l => { if (l.trim()) lines.push('  ' + l) })
-        else lines.push('  （无内容）')
       }
     }
   }
@@ -351,6 +394,29 @@ function generateHtml() {
     body += `</div>`
   }
 
+  // 文档成果
+  if (includeDocs.value) {
+    const docsToExport = getDocsToExport()
+    if (docsToExport.length > 0) {
+      body += `<div class="task-section">`
+      body += `<h2>文档成果 <span style="color:#aaa;font-size:13px;font-weight:400">共 ${docsToExport.length} 篇</span></h2>`
+      for (const doc of docsToExport) {
+        const typeLabel = doc.type === 'milestone'
+          ? `阶段性 · ${doc.date || ''}`
+          : `${PERIOD_LABELS[doc.period_type] || doc.period_type} · ${[doc.period_start, doc.period_end].filter(Boolean).join(' ~ ')}`
+        body += `<div style="border:1px solid #e8e8e8;border-radius:8px;margin-bottom:16px;overflow:hidden">`
+        body += `<div style="background:#f7f7f7;padding:8px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">`
+        body += `<span style="font-weight:700;font-size:14px">${escapeHtml(doc.title)}</span>`
+        body += `<span style="font-size:12px;color:#777">${escapeHtml(typeLabel)}</span>`
+        if (doc.project) body += `<span style="font-size:11px;background:#ede9fe;color:#6d28d9;padding:1px 6px;border-radius:3px">${escapeHtml(doc.project)}</span>`
+        body += `</div>`
+        body += `<div style="padding:14px;font-size:14px;line-height:1.75">${doc.content || '<em style="color:#aaa">（无内容）</em>'}</div>`
+        body += `</div>`
+      }
+      body += `</div>`
+    }
+  }
+
   // 专项进展
   if (includeUpdates.value) {
     const selectedProjects = projectsStore.items.filter(p => selectedProjectIds.value.includes(p.id))
@@ -421,6 +487,7 @@ function generateHtml() {
             const noteText = htmlToText(t.note).replace(/\n+/g, ' ').trim().slice(0, 150)
             if (noteText) body += `<div class="task-note">备注：${escapeHtml(noteText)}${t.note.length > 150 ? '…' : ''}</div>`
           }
+          body += renderHandoffChainHtml(t)
           body += `<div class="task-meta">创建：${fmtDate(t.created_at)}</div>`
           body += `</div>`
         }
@@ -430,31 +497,6 @@ function generateHtml() {
     }
   }
 
-  // 文档成果
-  if (includeDocs.value) {
-    const docsToExport = [
-      ...matchedPeriodicDocs.value,
-      ...docsStore.items.filter(d => d.type === 'milestone' && selectedMilestoneDocIds.value.includes(d.id)),
-    ]
-    if (docsToExport.length > 0) {
-      body += `<div class="task-section">`
-      body += `<h2>文档成果 <span style="color:#aaa;font-size:13px;font-weight:400">共 ${docsToExport.length} 篇</span></h2>`
-      for (const doc of docsToExport) {
-        const typeLabel = doc.type === 'milestone'
-          ? `阶段性 · ${doc.date || ''}`
-          : `${PERIOD_LABELS[doc.period_type] || doc.period_type} · ${[doc.period_start, doc.period_end].filter(Boolean).join(' ~ ')}`
-        body += `<div style="border:1px solid #e8e8e8;border-radius:8px;margin-bottom:16px;overflow:hidden">`
-        body += `<div style="background:#f7f7f7;padding:8px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">`
-        body += `<span style="font-weight:700;font-size:14px">${escapeHtml(doc.title)}</span>`
-        body += `<span style="font-size:12px;color:#777">${escapeHtml(typeLabel)}</span>`
-        if (doc.project) body += `<span style="font-size:11px;background:#ede9fe;color:#6d28d9;padding:1px 6px;border-radius:3px">${escapeHtml(doc.project)}</span>`
-        body += `</div>`
-        body += `<div style="padding:14px;font-size:14px;line-height:1.75">${doc.content || '<em style="color:#aaa">（无内容）</em>'}</div>`
-        body += `</div>`
-      }
-      body += `</div>`
-    }
-  }
 
   const html = `<!DOCTYPE html>
 <html lang="zh">
