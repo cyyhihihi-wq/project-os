@@ -150,7 +150,8 @@ const projectTabs = computed(() => {
     if (!seenIds.has(tid)) {
       seenIds.add(tid)
       const p = projectsStore.getById(tid)
-      if (p) tabs.push({ id: tid, name: p.name })
+      // 已完成的专项不再展示独立 Tab
+      if (p && p.status !== 'completed') tabs.push({ id: tid, name: p.name })
     }
   }
 
@@ -270,15 +271,24 @@ const tabDoneTasks = computed(() => {
 const showDone = ref(true)
 
 // -- 今日 Todo tab --
-// 今日截止任务（用于激励横幅统计）
+// 判断任务所属专项是否已完成
+function isProjectCompleted(task) {
+  const tid = taskTabId(task)
+  if (tid === '__none__') return false
+  const p = projectsStore.getById(tid)
+  return p?.status === 'completed'
+}
+
+// 今日截止任务（用于激励横幅统计），排除已完成专项下的任务
 const todayTabTasksDue = computed(() =>
-  tasks.value.filter(t => t.due === todayStr.value)
+  tasks.value.filter(t => t.due === todayStr.value && !isProjectCompleted(t))
 )
 
-// 今日待验收：status=waiting 且最新 pending handoff 的 due <= today
+// 今日待验收：status=waiting 且最新 pending handoff 的 due <= today，排除已完成专项
 const todayTabWaiting = computed(() =>
   tasks.value.filter(t => {
     if (t.status !== 'waiting') return false
+    if (isProjectCompleted(t)) return false
     const pending = getPendingHandoff(t)
     return pending && pending.due && pending.due <= todayStr.value
   })
