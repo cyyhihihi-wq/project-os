@@ -578,7 +578,7 @@ function nowDatetimeLocal() {
           </div>
           <div class="flex-between mt-8">
             <span class="text-xs text-secondary">{{ fmtTime(p.updated_at) }}</span>
-            <span class="text-xs text-secondary">{{ tasksStore.byProject(p.id, p.name).length }} 个任务</span>
+            <span class="text-xs text-secondary">{{ p.updates?.length || 0 }} 条进展</span>
           </div>
         </div>
       </template>
