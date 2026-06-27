@@ -176,6 +176,51 @@ function updateProjectStatus(status) {
   projectsStore.update(selectedId.value, { status })
 }
 
+// -- Sorted project list: completed items sink to the bottom --
+const sortedProjects = computed(() =>
+  [...projectsStore.items].sort((a, b) => {
+    if (a.status === 'done' && b.status !== 'done') return 1
+    if (a.status !== 'done' && b.status === 'done') return -1
+    return 0
+  })
+)
+
+// -- Rename project --
+const editingProjectName = ref(false)
+const projectNameDraft = ref('')
+
+function startRenameProject() {
+  projectNameDraft.value = current.value?.name || ''
+  editingProjectName.value = true
+  showProjectMenu.value = false
+  nextTick(() => {
+    const el = document.getElementById('project-name-input')
+    if (el) { el.focus(); el.select() }
+  })
+}
+
+function saveRenameProject() {
+  const newName = projectNameDraft.value.trim()
+  if (!newName || !current.value || newName === current.value.name) {
+    editingProjectName.value = false
+    return
+  }
+  const oldName = current.value.name
+  const projectId = current.value.id
+  // 同步更新关联任务的 project 名称字段
+  for (const t of tasksStore.items) {
+    if (t.project_id === projectId || (!t.project_id && t.project === oldName)) {
+      tasksStore.update(t.id, { project: newName })
+    }
+  }
+  projectsStore.update(projectId, { name: newName })
+  editingProjectName.value = false
+}
+
+function cancelRenameProject() {
+  editingProjectName.value = false
+}
+
 // -- Judgements --
 const judgements = computed(() => projectsStore.getJudgements(selectedId.value))
 
@@ -562,7 +607,7 @@ function nowDatetimeLocal() {
         </div>
 
         <div
-          v-for="p in projectsStore.items"
+          v-for="p in sortedProjects"
           :key="p.id"
           class="card"
           :style="{
@@ -588,9 +633,24 @@ function nowDatetimeLocal() {
     <div class="projects-right" v-if="current">
       <!-- 手机端返回按钮 -->
       <button class="mobile-back-btn" @click="mobilePanel = 'list'">← 返回列表</button>
-      <div class="flex-between" style="margin-bottom:20px">
-        <h2 style="font-size:20px;margin:0">{{ current.name }}</h2>
-        <div class="flex gap-8" style="align-items:center">
+      <div class="flex-between" style="margin-bottom:20px;gap:8px">
+        <!-- 专项名称：普通显示 / 编辑 -->
+        <template v-if="!editingProjectName">
+          <h2 style="font-size:20px;margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ current.name }}</h2>
+        </template>
+        <template v-else>
+          <input
+            id="project-name-input"
+            v-model="projectNameDraft"
+            style="flex:1;font-size:18px;font-weight:600;padding:2px 6px"
+            @keydown.enter="saveRenameProject"
+            @keydown.escape="cancelRenameProject"
+          />
+          <button class="small primary" @click="saveRenameProject">保存</button>
+          <button class="small" @click="cancelRenameProject">取消</button>
+        </template>
+
+        <div v-if="!editingProjectName" class="flex gap-8" style="align-items:center;flex-shrink:0">
           <select :value="current.status" @change="updateProjectStatus($event.target.value)" style="width:auto;font-size:13px;padding:4px 10px">
             <option value="active">进行中</option>
             <option value="done">已完成</option>
@@ -607,9 +667,14 @@ function nowDatetimeLocal() {
             >⋯</button>
             <div
               v-if="showProjectMenu"
-              style="position:absolute;right:0;top:calc(100% + 4px);background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius);z-index:20;min-width:96px;padding:4px 0;box-shadow:0 2px 8px rgba(0,0,0,.1)"
+              style="position:absolute;right:0;top:calc(100% + 4px);background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius);z-index:20;min-width:110px;padding:4px 0;box-shadow:0 2px 8px rgba(0,0,0,.1)"
               @click.stop
             >
+              <button
+                class="small"
+                style="display:block;width:100%;text-align:left;padding:7px 14px;border:none;border-radius:0;background:transparent"
+                @click="startRenameProject"
+              >重命名</button>
               <button
                 class="small"
                 style="display:block;width:100%;text-align:left;padding:7px 14px;border:none;border-radius:0;background:transparent;color:var(--color-danger)"
