@@ -246,6 +246,17 @@ export const useProjectsStore = defineStore('projects', {
       this._persist()
     },
 
+    reorder(orderedIds) {
+      const map = Object.fromEntries(this.items.map(p => [p.id, p]))
+      const next = orderedIds.map(id => map[id]).filter(Boolean)
+      const seen = new Set(orderedIds)
+      for (const p of this.items) {
+        if (!seen.has(p.id)) next.push(p)
+      }
+      this.items = next
+      this._persist()
+    },
+
     _persist() {
       save(KEY, JSON.parse(JSON.stringify(this.items)))
     },

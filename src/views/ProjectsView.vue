@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import draggable from 'vuedraggable'
 import { useProjectsStore } from '../stores/projects.js'
 import { useTasksStore } from '../stores/tasks.js'
 import { useMaterialsStore } from '../stores/materials.js'
@@ -184,6 +185,14 @@ const sortedProjects = computed(() =>
     return 0
   })
 )
+
+// -- Drag list (local mirror of sortedProjects for vuedraggable v-model) --
+const dragList = ref([...sortedProjects.value])
+watch(sortedProjects, (val) => { dragList.value = [...val] })
+
+function onDragEnd() {
+  projectsStore.reorder(dragList.value.map(p => p.id))
+}
 
 // -- Rename project --
 const editingProjectName = ref(false)
@@ -606,26 +615,37 @@ function nowDatetimeLocal() {
           </div>
         </div>
 
-        <div
-          v-for="p in sortedProjects"
-          :key="p.id"
-          class="card"
-          :style="{
-            cursor: 'pointer',
-            borderColor: selectedId === p.id ? 'var(--color-primary)' : '',
-            background: selectedId === p.id ? 'var(--color-primary-light)' : '',
-          }"
-          @click="selectProjectMobile(p.id)"
+        <draggable
+          v-model="dragList"
+          item-key="id"
+          handle=".drag-handle"
+          ghost-class="drag-ghost"
+          @end="onDragEnd"
         >
-          <div class="flex-between">
-            <span style="font-weight:600;font-size:15px">{{ p.name }}</span>
-            <span class="tag" :style="{ color: projectStatusColors[p.status], borderColor: projectStatusColors[p.status] }">{{ projectStatusLabels[p.status] }}</span>
-          </div>
-          <div class="flex-between mt-8">
-            <span class="text-xs text-secondary">{{ fmtTime(p.updated_at) }}</span>
-            <span class="text-xs text-secondary">{{ p.updates?.length || 0 }} 条进展</span>
-          </div>
-        </div>
+          <template #item="{ element: p }">
+            <div
+              class="card"
+              :style="{
+                cursor: 'pointer',
+                borderColor: selectedId === p.id ? 'var(--color-primary)' : '',
+                background: selectedId === p.id ? 'var(--color-primary-light)' : '',
+              }"
+              @click="selectProjectMobile(p.id)"
+            >
+              <div class="flex-between">
+                <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0">
+                  <span class="drag-handle" title="拖拽排序" style="cursor:grab;color:var(--color-text-secondary,#aaa);font-size:14px;flex-shrink:0;user-select:none" @click.stop>⠿</span>
+                  <span style="font-weight:600;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.name }}</span>
+                </div>
+                <span class="tag" :style="{ color: projectStatusColors[p.status], borderColor: projectStatusColors[p.status], flexShrink: 0 }">{{ projectStatusLabels[p.status] }}</span>
+              </div>
+              <div class="flex-between mt-8">
+                <span class="text-xs text-secondary">{{ fmtTime(p.updated_at) }}</span>
+                <span class="text-xs text-secondary">{{ p.updates?.length || 0 }} 条进展</span>
+              </div>
+            </div>
+          </template>
+        </draggable>
       </template>
     </div>
 
@@ -1160,5 +1180,13 @@ function nowDatetimeLocal() {
   background: var(--color-primary-light, #e8f0fe);
   border-radius: 0 var(--radius) var(--radius) 0;
   padding: 8px 8px 8px 16px;
+}
+.drag-ghost {
+  opacity: 0.4;
+  background: var(--color-primary-light, #e8f0fe) !important;
+  border: 1px dashed var(--color-primary) !important;
+}
+.drag-handle:hover {
+  color: var(--color-primary) !important;
 }
 </style>
