@@ -489,7 +489,18 @@ button.small {
   padding-left: 22px;
   margin-bottom: 8px;
 }
-/* 嵌套列表标记变化 */
+/* 嵌套有序列表默认样式（来源未指定 type 时的 fallback） */
+.tiptap ol ol,
+.rich-content ol ol { list-style-type: lower-alpha; }
+.tiptap ol ol ol,
+.rich-content ol ol ol { list-style-type: lower-roman; }
+/* 保留来源 HTML 中明确指定的 type 属性（否则上方 decimal 会将其覆盖） */
+.tiptap ol[type="A"], .rich-content ol[type="A"] { list-style-type: upper-alpha; }
+.tiptap ol[type="a"], .rich-content ol[type="a"] { list-style-type: lower-alpha; }
+.tiptap ol[type="I"], .rich-content ol[type="I"] { list-style-type: upper-roman; }
+.tiptap ol[type="i"], .rich-content ol[type="i"] { list-style-type: lower-roman; }
+.tiptap ol[type="1"], .rich-content ol[type="1"] { list-style-type: decimal; }
+/* 嵌套无序列表标记变化 */
 .tiptap ul ul,
 .rich-content ul ul { list-style-type: circle; }
 .tiptap ul ul ul,

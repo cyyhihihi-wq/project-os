@@ -93,6 +93,45 @@ function dataURLtoFile(dataUrl) {
 }
 
 /**
+ * 修复粘贴 HTML 中有序列表的编号问题：
+ *
+ * 问题背景：飞书/Word/网页等来源粘贴时，同一逻辑列表常被拆成多个 <ol> 元素
+ * （中间夹杂 <p> 段落），每个 <ol> 都从 1 开始，造成 1,2,3 变 1,1,1。
+ *
+ * 修复逻辑：
+ * 1. 遍历同一父级下的所有 <ol>，计算前一个 <ol> 的末尾序号
+ * 2. 若当前 <ol> 没有 start 属性且前面有兄弟 <ol>，补上 start=N
+ * 3. 递归处理所有嵌套层级（修复子列表的相同问题）
+ */
+function fixListStart(htmlStr) {
+  const div = document.createElement('div')
+  div.innerHTML = htmlStr
+
+  function walk(parent) {
+    let prevOlEnd = null  // 同级上一个 <ol> 结束后的下一个序号
+    for (const child of [...parent.children]) {
+      if (child.tagName === 'OL') {
+        // 如果前面有 <ol> 兄弟且当前没有 start 属性，自动续号
+        if (prevOlEnd !== null && prevOlEnd > 1 && !child.hasAttribute('start')) {
+          child.setAttribute('start', prevOlEnd)
+        }
+        const startVal = parseInt(child.getAttribute('start') || '1', 10)
+        const liCount = child.querySelectorAll(':scope > li').length
+        prevOlEnd = startVal + liCount
+      } else if (child.tagName === 'UL') {
+        // 无序列表打断有序序列，重置
+        prevOlEnd = null
+      }
+      // <p>/<div> 等普通元素不重置，允许编号跨段落延续
+      walk(child)
+    }
+  }
+
+  walk(div)
+  return div.innerHTML
+}
+
+/**
  * 将 HTML 字符串以 ProseMirror Slice 方式插入编辑器（正确保留列表/表格等块级结构）。
  *
  * 为什么不用 insertContent(html)：
@@ -245,41 +284,53 @@ async function pasteHtmlWithImages(html, clipboardImageFiles = []) {
 }
 
 /**
- * capture 阶段拦截粘贴 — 仅 enableImagePaste=true 时生效。
+ * capture 阶段拦截粘贴。
  * 规则：event.preventDefault() 必须在第一个 await 之前同步调用。
+ *
+ * 处理优先级：
+ *   A. 有 HTML 且含图片 (enableImagePaste) → 图片处理流程（同时修复列表编号）
+ *   B. 无 HTML，只有图片文件 (enableImagePaste) → 纯截图上传
+ *   C. 有 HTML 且含 <ol> → 修复列表编号后插入（所有编辑器生效）
+ *   D. 其他 → 不拦截，交给 Tiptap 默认处理
  */
 async function onPaste(event) {
-  if (!props.enableImagePaste) return
-
   const clipboard = event.clipboardData
   if (!clipboard) return
 
   // 同步采集全部数据（必须在任何 await 之前完成）
   const html = clipboard.getData('text/html')
   const imageFiles = []
-  for (const item of clipboard.items) {
-    if (item.kind === 'file' && item.type.startsWith('image/')) {
-      const f = item.getAsFile()
-      if (f) imageFiles.push(f)
+  if (props.enableImagePaste) {
+    for (const item of clipboard.items) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const f = item.getAsFile()
+        if (f) imageFiles.push(f)
+      }
     }
   }
 
-  // ── A: 有 HTML 且含图片 → 统一走图片处理流程 ─────────────────────────
-  // 注意：imageFiles 也一并传入，用于替代 HTML 里不可访问的 blob:/cid: 图片
-  if (html && html.trim() && /<img\b/i.test(html)) {
+  // ── A: 有 HTML 且含图片 → 统一走图片处理流程（同时修复列表编号）────
+  if (props.enableImagePaste && html && html.trim() && /<img\b/i.test(html)) {
     event.preventDefault()
-    await pasteHtmlWithImages(html, imageFiles)
+    await pasteHtmlWithImages(fixListStart(html), imageFiles)
     return
   }
 
   // ── B: 无 HTML，只有图片文件（纯截图）──────────────────────────────
-  if (imageFiles.length > 0) {
+  if (props.enableImagePaste && imageFiles.length > 0) {
     event.preventDefault()
     await pasteScreenshot(imageFiles)
     return
   }
 
-  // C: 纯文字 / 纯 HTML 文字 → 完全不拦截
+  // ── C: 有 HTML 且含 <ol> → 修复列表编号后插入（所有编辑器生效）──────
+  if (html && html.trim() && /<ol[\s>]/i.test(html)) {
+    event.preventDefault()
+    insertHtmlAtCursor(fixListStart(html))
+    return
+  }
+
+  // D: 其他（纯文字/纯 HTML 无列表）→ 不拦截，交给 Tiptap
 }
 </script>
 
