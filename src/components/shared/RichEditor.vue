@@ -399,25 +399,30 @@ async function onPaste(event) {
 </template>
 
 <style>
-/* 表格（全局，供 rich-content 展示区复用） */
-.rich-editor-content table,
-.rich-content table {
-  border-collapse: collapse;
-  width: 100%;
+/* 编辑器内表格容器横向滚动（Tiptap 把 table 包在 .tableWrapper 里） */
+.rich-editor-content .tableWrapper {
+  display: block;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   margin: 8px 0;
+}
+.rich-editor-content table {
+  border-collapse: collapse;
+  max-width: 100%;
+  width: max-content;
+  min-width: 100%;
   font-size: 13px;
 }
 .rich-editor-content th,
-.rich-editor-content td,
-.rich-content th,
-.rich-content td {
+.rich-editor-content td {
   border: 1px solid var(--color-border, #e0e0e0);
   padding: 5px 10px;
   text-align: left;
   vertical-align: top;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
-.rich-editor-content th,
-.rich-content th {
+.rich-editor-content th {
   background: var(--color-bg, #f5f5f5);
   font-weight: 600;
 }
