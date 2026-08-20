@@ -1,0 +1,9 @@
+{
+  "pid": 6491,
+  "port": 50158,
+  "project_name": "work-system",
+  "project_path": "/home/data/vibe-coding/projects/yingyu.chen/session-1776003419748/网页设计/work-system",
+  "started_at": 1779950457,
+  "mode": "production",
+  "pm2_name": "work-system-prod"
+}
