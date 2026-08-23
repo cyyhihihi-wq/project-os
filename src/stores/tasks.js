@@ -4,6 +4,7 @@ import {
   persistTasks,
   loadReviews,
   persistReviews,
+  loadModesMap,
 } from '../data/repositories/taskRepository.js'
 import { supabase } from '../lib/supabase.js'
 import { syncCreate, syncUpdate, syncDelete, syncWeekReview } from '../lib/cloudSync.js'
@@ -200,15 +201,22 @@ export const useTasksStore = defineStore('tasks', {
       if (error) {
         console.error('[cloud] tasks fetch error:', error.message)
       } else {
+        // localById：来自 init() 加载的本地数据（有 mode 等本地字段）
         const localById = {}
         for (const t of this.items) localById[t.id] = t
 
+        // modesMap：独立持久化的 taskId→mode 映射，是 mode 的最终权威来源
+        // 即使主 tasks 数组被刷掉，只要 modesMap 还在就能正确恢复
+        const modesMap = loadModesMap()
+
         this.items = tasks.map(t => {
           const local = localById[t.id]
+          // 优先级：modesMap（最可靠）> localById（次可靠）> 默认 inbox
+          const savedMode = modesMap[t.id] || local?.mode || 'inbox'
           return withDefaults({
             ...t,
             // 从本地恢复云端不存储的字段
-            mode: local?.mode || 'inbox',
+            mode: savedMode,
             focus_subtasks: local?.focus_subtasks || [],
             focus_time_start: local?.focus_time_start || '',
             focus_time_end: local?.focus_time_end || '',
