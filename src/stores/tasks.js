@@ -238,11 +238,15 @@ export const useTasksStore = defineStore('tasks', {
         const localById = {}
         for (const t of this.items) localById[t.id] = t
 
+        // ⭐ 保存本地排序位置——init() 已按用户拖拽后的顺序加载好了，
+        //    必须在覆盖 this.items 之前先记下来，否则刷新后顺序丢失
+        const localOrderMap = {}
+        this.items.forEach((t, i) => { localOrderMap[t.id] = i })
+
         // modesMap：独立持久化的 taskId→mode 映射，是 mode 的最终权威来源
-        // 即使主 tasks 数组被刷掉，只要 modesMap 还在就能正确恢复
         const modesMap = loadModesMap()
 
-        this.items = tasks.map(t => {
+        const merged = tasks.map(t => {
           const local = localById[t.id]
           // 优先级：modesMap（最可靠）> localById（次可靠）> 默认 inbox
           const savedMode = modesMap[t.id] || local?.mode || 'inbox'
@@ -261,6 +265,15 @@ export const useTasksStore = defineStore('tasks', {
             status: (t.status === 'waiting' || t.status === 'todo') ? 'doing' : t.status,
           })
         })
+
+        // ⭐ 按本地保存的排序位置重排；云端新增的任务（本地无记录）放到最后
+        merged.sort((a, b) => {
+          const pa = localOrderMap[a.id] ?? Infinity
+          const pb = localOrderMap[b.id] ?? Infinity
+          return pa - pb
+        })
+
+        this.items = merged
         persistTasks(this.items)
       }
 
