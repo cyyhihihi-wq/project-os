@@ -281,7 +281,7 @@ async function genWeekSummary() {
         <section class="dp-sec">
           <div class="sec-hd">
             <span class="sec-lbl">沉浸工作</span>
-            <span v-if="focusTasks.length" class="sec-cnt">{{ focusTasks.length }}</span>
+            <span v-if="draggableFocusTasks.length" class="sec-cnt">{{ draggableFocusTasks.length }}</span>
           </div>
 
           <p v-if="!draggableFocusTasks.length" class="sec-empty">今日没有沉浸工作安排</p>
@@ -435,7 +435,7 @@ async function genWeekSummary() {
         <section class="dp-sec">
           <div class="sec-hd">
             <span class="sec-lbl">快速处理</span>
-            <span v-if="quickTasks.length" class="sec-cnt">{{ quickTasks.length }}</span>
+            <span v-if="draggableQuickTasks.length" class="sec-cnt">{{ draggableQuickTasks.length }}</span>
           </div>
 
           <p v-if="!draggableQuickTasks.length" class="sec-empty">无快速任务</p>
