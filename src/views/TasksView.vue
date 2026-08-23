@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue'
+import draggable from 'vuedraggable'
 import { useTasksStore } from '../stores/tasks.js'
 import { useProjectsStore } from '../stores/projects.js'
 import { generateWeekSummary } from '../ai/organizeService.js'
@@ -84,10 +85,18 @@ function onCaptureKeydown(e) {
 }
 
 // ── 工作区分组 ──
-const focusTasks = computed(() => tasksStore.focusTasks)
-const quickTasks = computed(() => tasksStore.quickTasks)
 const collabTasks = computed(() => tasksStore.collabTasks)
 const inboxTasks = computed(() => tasksStore.inboxTasks)
+
+// 可拖拽排序的 focus / quick（computed setter 触发 store.reorder）
+const draggableFocusTasks = computed({
+  get: () => [...tasksStore.focusTasks],
+  set: (val) => tasksStore.reorder('focus', val),
+})
+const draggableQuickTasks = computed({
+  get: () => [...tasksStore.quickTasks],
+  set: (val) => tasksStore.reorder('quick', val),
+})
 
 // 协作到期判断
 function isCollabDue(task) {
@@ -275,120 +284,137 @@ async function genWeekSummary() {
             <span v-if="focusTasks.length" class="sec-cnt">{{ focusTasks.length }}</span>
           </div>
 
-          <p v-if="!focusTasks.length" class="sec-empty">今日没有沉浸工作安排</p>
+          <p v-if="!draggableFocusTasks.length" class="sec-empty">今日没有沉浸工作安排</p>
 
-          <div v-for="task in focusTasks" :key="task.id" class="fb">
-            <!-- 标题行 -->
-            <div class="fb-hd">
-              <button class="fb-dot" @click="markDone(task.id)" title="完成"></button>
+          <draggable
+            v-model="draggableFocusTasks"
+            item-key="id"
+            handle=".drag-handle"
+            ghost-class="drag-ghost"
+            animation="150"
+          >
+            <template #item="{ element: task, index }">
+              <div class="fb">
+                <!-- 标题行 -->
+                <div class="fb-hd">
+                  <span class="drag-handle" title="拖动调整优先级">⠿</span>
+                  <span class="fb-num">{{ index + 1 }}</span>
+                  <button class="fb-dot" @click="markDone(task.id)" title="完成"></button>
 
-              <!-- 标题 -->
-              <span
-                v-if="!isEditing(task.id,'title')"
-                class="fb-title editable"
-                @click="startEdit(task.id,'title',$event)"
-              >{{ task.title }}</span>
-              <input
-                v-else
-                class="il-inp fb-title-inp"
-                :value="task.title"
-                @blur="saveEdit(task,'title',$event.target.value)"
-                @keydown.enter.prevent="saveEdit(task,'title',$event.target.value)"
-                @keydown.escape.prevent="editingCell=null"
-                autofocus
-              />
+                  <!-- 标题 -->
+                  <span
+                    v-if="!isEditing(task.id,'title')"
+                    class="fb-title editable"
+                    @click="startEdit(task.id,'title',$event)"
+                  >{{ task.title }}</span>
+                  <input
+                    v-else
+                    class="il-inp fb-title-inp"
+                    :value="task.title"
+                    @blur="saveEdit(task,'title',$event.target.value)"
+                    @keydown.enter.prevent="saveEdit(task,'title',$event.target.value)"
+                    @keydown.escape.prevent="editingCell=null"
+                    autofocus
+                  />
 
-              <div class="fb-meta">
-                <!-- 时间段 -->
-                <span
-                  v-if="!isEditing(task.id,'time') && (task.focus_time_start || task.focus_time_end)"
-                  class="fb-time editable"
-                  @click="startEdit(task.id,'time',$event)"
-                >{{ task.focus_time_start }}<template v-if="task.focus_time_end">–{{ task.focus_time_end }}</template></span>
-                <span
-                  v-else-if="!isEditing(task.id,'time')"
-                  class="fb-time-ph"
-                  @click="startEdit(task.id,'time',$event)"
-                >+ 时间</span>
-                <div v-else class="time-grp" @click.stop>
-                  <input type="time" class="il-inp time-inp" :value="task.focus_time_start"
-                    @change="tasksStore.update(task.id,{focus_time_start:$event.target.value})" />
-                  <span style="color:#ccc">–</span>
-                  <input type="time" class="il-inp time-inp" :value="task.focus_time_end"
-                    @change="tasksStore.update(task.id,{focus_time_end:$event.target.value})" />
-                  <button class="btn-xs" @click.stop="editingCell=null">确定</button>
+                  <div class="fb-meta">
+                    <!-- DDL -->
+                    <template v-if="!isEditing(task.id,'due')">
+                      <span
+                        v-if="task.due"
+                        class="fb-due editable"
+                        :class="{'fb-due-over': task.due <= todayStr}"
+                        @click="startEdit(task.id,'due',$event)"
+                      >{{ fmtDate(task.due) }}</span>
+                      <span
+                        v-else
+                        class="fb-due-ph"
+                        @click="startEdit(task.id,'due',$event)"
+                      >+ DDL</span>
+                    </template>
+                    <input
+                      v-else
+                      type="date"
+                      class="il-inp due-inp"
+                      :value="task.due"
+                      @change="saveEdit(task,'due',$event.target.value)"
+                      @blur="editingCell=null"
+                      @keydown.escape.prevent="editingCell=null"
+                      autofocus
+                    />
+
+                    <!-- 项目 -->
+                    <span v-if="task.project" class="tag">{{ task.project }}</span>
+
+                    <!-- 子步骤进度 -->
+                    <span v-if="subtaskProgress(task)" class="fb-prog">
+                      {{ subtaskProgress(task).done }}/{{ subtaskProgress(task).total }}
+                    </span>
+                  </div>
+
+                  <!-- 操作（hover 显示） -->
+                  <div class="hov-acts">
+                    <button @click.stop="assignZone(task.id,'inbox')" title="退回收件箱">↩</button>
+                    <button @click.stop="removeTask(task.id)" class="del" title="删除">×</button>
+                  </div>
                 </div>
 
-                <!-- 项目 -->
-                <span v-if="task.project" class="tag">{{ task.project }}</span>
+                <!-- 备注 -->
+                <div class="fb-goal-row" @click.stop>
+                  <span
+                    v-if="!isEditing(task.id,'focus_goal') && task.focus_goal"
+                    class="fb-goal editable"
+                    @click="startEdit(task.id,'focus_goal',$event)"
+                  >{{ task.focus_goal }}</span>
+                  <input
+                    v-else-if="isEditing(task.id,'focus_goal')"
+                    class="il-inp fb-goal-inp"
+                    :value="task.focus_goal"
+                    placeholder="备注…"
+                    @blur="saveEdit(task,'focus_goal',$event.target.value)"
+                    @keydown.enter.prevent="saveEdit(task,'focus_goal',$event.target.value)"
+                    @keydown.escape.prevent="editingCell=null"
+                    autofocus
+                  />
+                  <span
+                    v-else
+                    class="fb-goal-ph"
+                    @click="startEdit(task.id,'focus_goal',$event)"
+                  >+ 备注</span>
+                </div>
 
-                <!-- 子步骤进度 -->
-                <span v-if="subtaskProgress(task)" class="fb-prog">
-                  {{ subtaskProgress(task).done }}/{{ subtaskProgress(task).total }}
-                </span>
+                <!-- 子步骤 -->
+                <div class="sub-list">
+                  <label
+                    v-for="sub in (task.focus_subtasks||[])"
+                    :key="sub.id"
+                    class="sub-row"
+                    :class="{'sub-done': sub.done}"
+                  >
+                    <input type="checkbox" class="sub-ck" :checked="sub.done"
+                      @change="tasksStore.toggleFocusSubtask(task.id,sub.id)" />
+                    <span class="sub-text">{{ sub.text }}</span>
+                    <button class="sub-del hov-show" @click.prevent.stop="tasksStore.removeFocusSubtask(task.id,sub.id)">×</button>
+                  </label>
+
+                  <!-- 新增子步骤输入 -->
+                  <div v-if="subInputTaskId === task.id" class="sub-row sub-inp-row" @click.stop>
+                    <span class="sub-ck-ph"></span>
+                    <input
+                      ref="subInputRef"
+                      class="il-inp sub-inp"
+                      v-model="subInputText"
+                      placeholder="步骤内容…"
+                      @keydown.enter.prevent="submitSubInput(task.id)"
+                      @keydown.escape.prevent="subInputTaskId=null"
+                    />
+                    <button class="btn-xs" @click.stop="submitSubInput(task.id)">添加</button>
+                  </div>
+                  <button v-else class="sub-add" @click.stop="startSubInput(task.id)">+ 添加步骤</button>
+                </div>
               </div>
-
-              <!-- 操作（hover 显示） -->
-              <div class="hov-acts">
-                <button @click.stop="assignZone(task.id,'inbox')" title="退回收件箱">↩</button>
-                <button @click.stop="removeTask(task.id)" class="del" title="删除">×</button>
-              </div>
-            </div>
-
-            <!-- 今日目标 -->
-            <div class="fb-goal-row" @click.stop>
-              <span
-                v-if="!isEditing(task.id,'focus_goal') && task.focus_goal"
-                class="fb-goal editable"
-                @click="startEdit(task.id,'focus_goal',$event)"
-              >{{ task.focus_goal }}</span>
-              <input
-                v-else-if="isEditing(task.id,'focus_goal')"
-                class="il-inp fb-goal-inp"
-                :value="task.focus_goal"
-                placeholder="今日目标…"
-                @blur="saveEdit(task,'focus_goal',$event.target.value)"
-                @keydown.enter.prevent="saveEdit(task,'focus_goal',$event.target.value)"
-                @keydown.escape.prevent="editingCell=null"
-                autofocus
-              />
-              <span
-                v-else
-                class="fb-goal-ph"
-                @click="startEdit(task.id,'focus_goal',$event)"
-              >+ 今日目标</span>
-            </div>
-
-            <!-- 子步骤 -->
-            <div class="sub-list">
-              <label
-                v-for="sub in (task.focus_subtasks||[])"
-                :key="sub.id"
-                class="sub-row"
-                :class="{'sub-done': sub.done}"
-              >
-                <input type="checkbox" class="sub-ck" :checked="sub.done"
-                  @change="tasksStore.toggleFocusSubtask(task.id,sub.id)" />
-                <span class="sub-text">{{ sub.text }}</span>
-                <button class="sub-del hov-show" @click.prevent.stop="tasksStore.removeFocusSubtask(task.id,sub.id)">×</button>
-              </label>
-
-              <!-- 新增子步骤输入 -->
-              <div v-if="subInputTaskId === task.id" class="sub-row sub-inp-row" @click.stop>
-                <span class="sub-ck-ph"></span>
-                <input
-                  ref="subInputRef"
-                  class="il-inp sub-inp"
-                  v-model="subInputText"
-                  placeholder="步骤内容…"
-                  @keydown.enter.prevent="submitSubInput(task.id)"
-                  @keydown.escape.prevent="subInputTaskId=null"
-                />
-                <button class="btn-xs" @click.stop="submitSubInput(task.id)">添加</button>
-              </div>
-              <button v-else class="sub-add" @click.stop="startSubInput(task.id)">+ 添加步骤</button>
-            </div>
-          </div>
+            </template>
+          </draggable>
 
           <!-- 内联添加 -->
           <div v-if="addingMode==='focus'" class="il-add">
@@ -412,35 +438,43 @@ async function genWeekSummary() {
             <span v-if="quickTasks.length" class="sec-cnt">{{ quickTasks.length }}</span>
           </div>
 
-          <p v-if="!quickTasks.length" class="sec-empty">无快速任务</p>
+          <p v-if="!draggableQuickTasks.length" class="sec-empty">无快速任务</p>
 
-          <div
-            v-for="task in quickTasks"
-            :key="task.id"
-            class="qk-row"
+          <draggable
+            v-model="draggableQuickTasks"
+            item-key="id"
+            handle=".drag-handle"
+            ghost-class="drag-ghost"
+            animation="150"
           >
-            <input type="checkbox" class="qk-ck" @change="markDone(task.id)" />
-            <span
-              v-if="!isEditing(task.id,'title')"
-              class="qk-title"
-              @dblclick="startEdit(task.id,'title',$event)"
-            >{{ task.title }}</span>
-            <input
-              v-else
-              class="il-inp qk-inp"
-              :value="task.title"
-              @blur="saveEdit(task,'title',$event.target.value)"
-              @keydown.enter.prevent="saveEdit(task,'title',$event.target.value)"
-              @keydown.escape.prevent="editingCell=null"
-              autofocus
-            />
-            <span v-if="task.project" class="tag tag-sm">{{ task.project }}</span>
-            <div class="hov-acts qk-acts">
-              <button @click.stop="startEdit(task.id,'title',$event)" title="编辑">✎</button>
-              <button @click.stop="assignZone(task.id,'inbox')" title="退回">↩</button>
-              <button @click.stop="removeTask(task.id)" class="del" title="删除">×</button>
-            </div>
-          </div>
+            <template #item="{ element: task, index }">
+              <div class="qk-row">
+                <span class="drag-handle qk-handle" title="拖动调整优先级">⠿</span>
+                <span class="qk-num">{{ index + 1 }}</span>
+                <input type="checkbox" class="qk-ck" @change="markDone(task.id)" />
+                <span
+                  v-if="!isEditing(task.id,'title')"
+                  class="qk-title"
+                  @dblclick="startEdit(task.id,'title',$event)"
+                >{{ task.title }}</span>
+                <input
+                  v-else
+                  class="il-inp qk-inp"
+                  :value="task.title"
+                  @blur="saveEdit(task,'title',$event.target.value)"
+                  @keydown.enter.prevent="saveEdit(task,'title',$event.target.value)"
+                  @keydown.escape.prevent="editingCell=null"
+                  autofocus
+                />
+                <span v-if="task.project" class="tag tag-sm">{{ task.project }}</span>
+                <div class="hov-acts qk-acts">
+                  <button @click.stop="startEdit(task.id,'title',$event)" title="编辑">✎</button>
+                  <button @click.stop="assignZone(task.id,'inbox')" title="退回">↩</button>
+                  <button @click.stop="removeTask(task.id)" class="del" title="删除">×</button>
+                </div>
+              </div>
+            </template>
+          </draggable>
 
           <div v-if="addingMode==='quick'" class="il-add">
             <input
@@ -766,10 +800,24 @@ async function genWeekSummary() {
 }
 .fb:last-of-type { border-bottom: none; }
 .fb:hover .hov-acts { display: flex; }
+/* ── 拖拽手柄 ── */
+.drag-handle {
+  cursor: grab;
+  color: #d8dce4;
+  font-size: 13px;
+  flex-shrink: 0;
+  user-select: none;
+  padding: 0 1px;
+  line-height: 1;
+  margin-top: 2px;
+}
+.drag-handle:hover { color: #9ca3af; }
+.drag-ghost { opacity: 0.35; background: var(--color-primary-light) !important; border-radius: 6px; }
+
 .fb-hd {
   display: flex;
   align-items: flex-start;
-  gap: 9px;
+  gap: 8px;
   margin-bottom: 5px;
 }
 .fb-dot {
@@ -794,6 +842,17 @@ async function genWeekSummary() {
   word-break: break-word;
 }
 .fb-title-inp { font-size: 14.5px; font-weight: 600; flex: 1; }
+.fb-num {
+  font-size: 10px;
+  font-weight: 700;
+  color: #d0d5de;
+  flex-shrink: 0;
+  min-width: 14px;
+  text-align: right;
+  user-select: none;
+  margin-top: 3px;
+  line-height: 1.4;
+}
 .fb-meta {
   display: flex;
   align-items: center;
@@ -802,17 +861,18 @@ async function genWeekSummary() {
   flex-wrap: wrap;
   margin-top: 2px;
 }
-.fb-time {
-  font-size: 12px;
+/* DDL */
+.fb-due {
+  font-size: 11.5px;
   color: #9ca3af;
   cursor: text;
   white-space: nowrap;
 }
-.fb-time:hover { color: var(--color-text); }
-.fb-time-ph { font-size: 12px; color: #d8dce4; cursor: pointer; }
-.fb-time-ph:hover { color: #9ca3af; }
-.time-grp { display: flex; align-items: center; gap: 4px; }
-.time-inp { width: 86px; font-size: 12px; }
+.fb-due:hover { color: var(--color-text); }
+.fb-due-over { color: #d97706 !important; font-weight: 600; }
+.fb-due-ph { font-size: 11.5px; color: #d8dce4; cursor: pointer; }
+.fb-due-ph:hover { color: #9ca3af; }
+.due-inp { width: 124px; font-size: 12px; }
 .fb-prog { font-size: 11px; color: #b0b7c3; white-space: nowrap; }
 
 .fb-goal-row { padding-left: 23px; margin-bottom: 9px; }
@@ -874,13 +934,23 @@ async function genWeekSummary() {
 .qk-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-height: 32px;
-  padding: 1px 5px;
+  padding: 1px 4px;
   border-radius: 5px;
 }
 .qk-row:hover { background: #f9fafb; }
 .qk-row:hover .hov-acts { display: flex; }
+.qk-handle { margin-top: 0; }
+.qk-num {
+  font-size: 10px;
+  font-weight: 700;
+  color: #d0d5de;
+  flex-shrink: 0;
+  min-width: 13px;
+  text-align: right;
+  user-select: none;
+}
 .qk-ck { flex-shrink: 0; width: 14px; height: 14px; cursor: pointer; accent-color: var(--color-primary); }
 .qk-title { flex: 1; font-size: 13.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qk-inp { flex: 1; font-size: 13.5px; }

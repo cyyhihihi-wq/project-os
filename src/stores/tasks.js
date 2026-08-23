@@ -144,6 +144,14 @@ export const useTasksStore = defineStore('tasks', {
       syncDelete('tasks', id)
     },
 
+    /** 拖拽排序：传入某 mode 下的新顺序（未完成任务数组），更新全局 items 中该 mode 的顺序 */
+    reorder(mode, newItems) {
+      const newIds = new Set(newItems.map(t => t.id))
+      const others = this.items.filter(t => !newIds.has(t.id))
+      this.items = [...newItems, ...others]
+      persistTasks(this.items)
+    },
+
     // ── Focus 子任务操作 ──
 
     addFocusSubtask(taskId, text) {
