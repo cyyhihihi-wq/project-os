@@ -147,6 +147,24 @@ function isEditing(taskId, field) {
 const subInputTaskId = ref(null)
 const subInputText = ref('')
 const subInputRef = ref(null)
+const editingSubtask = ref(null) // { taskId, subtaskId }
+
+function startEditSubtask(taskId, subtaskId) {
+  editingSubtask.value = { taskId, subtaskId }
+}
+function saveSubtask(taskId, subtaskId, val) {
+  if (val.trim()) tasksStore.updateFocusSubtask(taskId, subtaskId, val)
+  editingSubtask.value = null
+}
+function isEditingSubtask(taskId, subtaskId) {
+  return editingSubtask.value?.taskId === taskId && editingSubtask.value?.subtaskId === subtaskId
+}
+
+// ── 本周重点工作便签 ──
+const weekFocusNote = computed({
+  get: () => tasksStore.getWeekFocusNote(weekKey.value),
+  set: (val) => tasksStore.saveWeekFocusNote(weekKey.value, val),
+})
 
 function startSubInput(taskId) {
   subInputTaskId.value = taskId
@@ -388,7 +406,7 @@ async function genWeekSummary() {
 
                 <!-- 子步骤 -->
                 <div class="sub-list">
-                  <label
+                  <div
                     v-for="sub in (task.focus_subtasks||[])"
                     :key="sub.id"
                     class="sub-row"
@@ -396,9 +414,23 @@ async function genWeekSummary() {
                   >
                     <input type="checkbox" class="sub-ck" :checked="sub.done"
                       @change="tasksStore.toggleFocusSubtask(task.id,sub.id)" />
-                    <span class="sub-text">{{ sub.text }}</span>
-                    <button class="sub-del hov-show" @click.prevent.stop="tasksStore.removeFocusSubtask(task.id,sub.id)">×</button>
-                  </label>
+                    <!-- 文本：点击进入编辑，编辑时显示 input -->
+                    <span
+                      v-if="!isEditingSubtask(task.id,sub.id)"
+                      class="sub-text sub-text-edit"
+                      @click.stop="startEditSubtask(task.id,sub.id)"
+                    >{{ sub.text }}</span>
+                    <input
+                      v-else
+                      class="il-inp sub-inp"
+                      :value="sub.text"
+                      @blur="saveSubtask(task.id,sub.id,$event.target.value)"
+                      @keydown.enter.prevent="saveSubtask(task.id,sub.id,$event.target.value)"
+                      @keydown.escape.prevent="editingSubtask=null"
+                      autofocus
+                    />
+                    <button class="sub-del" @click.prevent.stop="tasksStore.removeFocusSubtask(task.id,sub.id)">×</button>
+                  </div>
 
                   <!-- 新增子步骤输入 -->
                   <div v-if="subInputTaskId === task.id" class="sub-row sub-inp-row" @click.stop>
@@ -646,7 +678,7 @@ async function genWeekSummary() {
         </div>
       </main>
 
-      <!-- ─── 右列：收件箱 ─── -->
+      <!-- ─── 右列：收件箱 + 本周重点工作 ─── -->
       <aside class="dp-inbox">
         <div class="sec-hd" style="margin-bottom:10px">
           <span class="sec-lbl">收件箱</span>
@@ -664,6 +696,19 @@ async function genWeekSummary() {
               <button @click.stop="removeTask(task.id)" class="del" title="删除">×</button>
             </div>
           </div>
+        </div>
+
+        <!-- 本周重点工作 -->
+        <div class="wfn-block">
+          <div class="sec-hd" style="margin-bottom:8px">
+            <span class="sec-lbl">本周重点工作</span>
+          </div>
+          <textarea
+            class="wfn-area"
+            :value="weekFocusNote"
+            placeholder="记录本周最重要的事项，随时对照…"
+            @input="weekFocusNote = $event.target.value"
+          ></textarea>
         </div>
       </aside>
 
@@ -919,6 +964,8 @@ async function genWeekSummary() {
 }
 .sub-ck-ph { width: 13px; flex-shrink: 0; }
 .sub-text { font-size: 13px; flex: 1; line-height: 1.4; }
+.sub-text-edit { cursor: text; border-radius: 3px; padding: 0 2px; }
+.sub-text-edit:hover { background: #f3f4f6; }
 .sub-done .sub-text { text-decoration: line-through; color: #c4c9d4; }
 .sub-del {
   background: none;
@@ -1121,6 +1168,34 @@ async function genWeekSummary() {
 }
 .inbox-acts { gap: 1px; }
 .inbox-acts button { font-size: 11.5px; padding: 2px 4px; }
+
+/* ── 本周重点工作 ── */
+.wfn-block {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid #f0f1f4;
+}
+.wfn-area {
+  width: 100%;
+  min-height: 110px;
+  resize: vertical;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text);
+  background: #fafbfc;
+  border: 1px solid #eaecf0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  box-sizing: border-box;
+  outline: none;
+  font-family: inherit;
+  transition: border-color .15s;
+}
+.wfn-area:focus {
+  border-color: var(--color-primary, #6366f1);
+  background: #fff;
+}
+.wfn-area::placeholder { color: #c8cdd9; }
 
 /* ── 按钮 ── */
 .btn-p {

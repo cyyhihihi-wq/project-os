@@ -44,3 +44,14 @@ export function loadReviews() {
 export function persistReviews(reviews) {
   save(REVIEWS_KEY, reviews)
 }
+
+/** 每周重点工作便签（weekKey → text） */
+const FOCUS_NOTES_KEY = 'work_week_focus_notes'
+
+export function loadFocusNotes() {
+  return getAll(FOCUS_NOTES_KEY) || {}
+}
+
+export function persistFocusNotes(notes) {
+  save(FOCUS_NOTES_KEY, notes)
+}

@@ -5,6 +5,8 @@ import {
   loadReviews,
   persistReviews,
   loadModesMap,
+  loadFocusNotes,
+  persistFocusNotes,
 } from '../data/repositories/taskRepository.js'
 import { supabase } from '../lib/supabase.js'
 import { syncCreate, syncUpdate, syncDelete, syncWeekReview } from '../lib/cloudSync.js'
@@ -36,6 +38,7 @@ export const useTasksStore = defineStore('tasks', {
   state: () => ({
     items: [],
     weekReviews: {},
+    weekFocusNotes: {},
   }),
 
   getters: {
@@ -72,6 +75,7 @@ export const useTasksStore = defineStore('tasks', {
         return migrated
       })
       this.weekReviews = loadReviews()
+      this.weekFocusNotes = loadFocusNotes()
     },
 
     add(data) {
@@ -181,6 +185,27 @@ export const useTasksStore = defineStore('tasks', {
       t.focus_subtasks = (t.focus_subtasks || []).filter(s => s.id !== subtaskId)
       t.updated_at = new Date().toISOString()
       persistTasks(this.items)
+    },
+
+    updateFocusSubtask(taskId, subtaskId, newText) {
+      const t = this.items.find(t => t.id === taskId)
+      if (!t) return
+      const s = (t.focus_subtasks || []).find(s => s.id === subtaskId)
+      if (!s || !newText.trim()) return
+      s.text = newText.trim()
+      t.updated_at = new Date().toISOString()
+      persistTasks(this.items)
+    },
+
+    // ── 周重点工作便签 ──
+
+    saveWeekFocusNote(weekKey, text) {
+      this.weekFocusNotes[weekKey] = text
+      persistFocusNotes(this.weekFocusNotes)
+    },
+
+    getWeekFocusNote(weekKey) {
+      return this.weekFocusNotes[weekKey] || ''
     },
 
     // ── 周总结 ──
