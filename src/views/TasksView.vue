@@ -85,10 +85,9 @@ function onCaptureKeydown(e) {
 }
 
 // ── 工作区分组 ──
-const collabTasks = computed(() => tasksStore.collabTasks)
 const inboxTasks = computed(() => tasksStore.inboxTasks)
 
-// 可拖拽排序的 focus / quick（computed setter 触发 store.reorder）
+// 可拖拽排序的 focus / quick / collab（computed setter 触发 store.reorder）
 const draggableFocusTasks = computed({
   get: () => [...tasksStore.focusTasks],
   set: (val) => tasksStore.reorder('focus', val),
@@ -96,6 +95,10 @@ const draggableFocusTasks = computed({
 const draggableQuickTasks = computed({
   get: () => [...tasksStore.quickTasks],
   set: (val) => tasksStore.reorder('quick', val),
+})
+const draggableCollabTasks = computed({
+  get: () => [...tasksStore.collabTasks],
+  set: (val) => tasksStore.reorder('collab', val),
 })
 
 // 协作到期判断
@@ -494,67 +497,81 @@ async function genWeekSummary() {
         <section class="dp-sec">
           <div class="sec-hd">
             <span class="sec-lbl">协作跟进</span>
-            <span v-if="collabTasks.length" class="sec-cnt">{{ collabTasks.length }}</span>
+            <span v-if="draggableCollabTasks.length" class="sec-cnt">{{ draggableCollabTasks.length }}</span>
           </div>
 
-          <template v-if="collabTasks.length">
+          <p v-if="!draggableCollabTasks.length" class="sec-empty">无协作跟进事项</p>
+
+          <template v-if="draggableCollabTasks.length">
             <!-- 表头 -->
             <div class="ct-hd ct-row">
+              <span></span>
               <span>事项</span>
               <span>负责人</span>
               <span>状态</span>
               <span>检查日</span>
               <span></span>
             </div>
-            <!-- 数据行 -->
-            <div
-              v-for="task in collabTasks"
-              :key="task.id"
-              class="ct-row"
-              :class="{'ct-due': isCollabDue(task)}"
+
+            <!-- 可拖拽数据行 -->
+            <draggable
+              v-model="draggableCollabTasks"
+              item-key="id"
+              handle=".ct-handle"
+              ghost-class="drag-ghost"
+              animation="150"
             >
-              <!-- 事项 -->
-              <span v-if="!isEditing(task.id,'title')" class="ct-cell editable" @click="startEdit(task.id,'title',$event)">{{ task.title }}</span>
-              <input v-else class="il-inp ct-inp" :value="task.title"
-                @blur="saveEdit(task,'title',$event.target.value)"
-                @keydown.enter.prevent="saveEdit(task,'title',$event.target.value)"
-                @keydown.escape.prevent="editingCell=null" autofocus />
+              <template #item="{ element: task }">
+                <div
+                  class="ct-row"
+                  :class="{'ct-due': isCollabDue(task)}"
+                >
+                  <!-- 拖把 -->
+                  <span class="drag-handle ct-handle" title="拖动调整优先级">⠿</span>
 
-              <!-- 负责人 -->
-              <span v-if="!isEditing(task.id,'collab_owner')" class="ct-cell editable" :class="{'ct-empty':!task.collab_owner}" @click="startEdit(task.id,'collab_owner',$event)">{{ task.collab_owner || '—' }}</span>
-              <input v-else class="il-inp ct-inp" :value="task.collab_owner" placeholder="负责人"
-                @blur="saveEdit(task,'collab_owner',$event.target.value)"
-                @keydown.enter.prevent="saveEdit(task,'collab_owner',$event.target.value)"
-                @keydown.escape.prevent="editingCell=null" autofocus />
+                  <!-- 事项 -->
+                  <span v-if="!isEditing(task.id,'title')" class="ct-cell editable" @click="startEdit(task.id,'title',$event)">{{ task.title }}</span>
+                  <input v-else class="il-inp ct-inp" :value="task.title"
+                    @blur="saveEdit(task,'title',$event.target.value)"
+                    @keydown.enter.prevent="saveEdit(task,'title',$event.target.value)"
+                    @keydown.escape.prevent="editingCell=null" autofocus />
 
-              <!-- 状态 -->
-              <span v-if="!isEditing(task.id,'collab_status')" class="ct-cell editable" :class="{'ct-empty':!task.collab_status}" @click="startEdit(task.id,'collab_status',$event)">{{ task.collab_status || '—' }}</span>
-              <input v-else class="il-inp ct-inp" :value="task.collab_status" placeholder="状态"
-                @blur="saveEdit(task,'collab_status',$event.target.value)"
-                @keydown.enter.prevent="saveEdit(task,'collab_status',$event.target.value)"
-                @keydown.escape.prevent="editingCell=null" autofocus />
+                  <!-- 负责人 -->
+                  <span v-if="!isEditing(task.id,'collab_owner')" class="ct-cell editable" :class="{'ct-empty':!task.collab_owner}" @click="startEdit(task.id,'collab_owner',$event)">{{ task.collab_owner || '—' }}</span>
+                  <input v-else class="il-inp ct-inp" :value="task.collab_owner" placeholder="负责人"
+                    @blur="saveEdit(task,'collab_owner',$event.target.value)"
+                    @keydown.enter.prevent="saveEdit(task,'collab_owner',$event.target.value)"
+                    @keydown.escape.prevent="editingCell=null" autofocus />
 
-              <!-- 检查日 -->
-              <span
-                v-if="!isEditing(task.id,'collab_next_check')"
-                class="ct-cell editable"
-                :class="{'ct-empty':!task.collab_next_check,'ct-date-due':isCollabDue(task)}"
-                @click="startEdit(task.id,'collab_next_check',$event)"
-              >{{ fmtDate(task.collab_next_check) || '—' }}</span>
-              <input v-else type="date" class="il-inp ct-inp" :value="task.collab_next_check"
-                @blur="saveEdit(task,'collab_next_check',$event.target.value)"
-                @keydown.enter.prevent="saveEdit(task,'collab_next_check',$event.target.value)"
-                @keydown.escape.prevent="editingCell=null" autofocus />
+                  <!-- 状态 -->
+                  <span v-if="!isEditing(task.id,'collab_status')" class="ct-cell editable" :class="{'ct-empty':!task.collab_status}" @click="startEdit(task.id,'collab_status',$event)">{{ task.collab_status || '—' }}</span>
+                  <input v-else class="il-inp ct-inp" :value="task.collab_status" placeholder="状态"
+                    @blur="saveEdit(task,'collab_status',$event.target.value)"
+                    @keydown.enter.prevent="saveEdit(task,'collab_status',$event.target.value)"
+                    @keydown.escape.prevent="editingCell=null" autofocus />
 
-              <!-- 操作 -->
-              <div class="hov-acts" style="justify-content:flex-end">
-                <button @click.stop="markDone(task.id)" title="完成">✓</button>
-                <button @click.stop="assignZone(task.id,'inbox')" title="退回">↩</button>
-                <button @click.stop="removeTask(task.id)" class="del" title="删除">×</button>
-              </div>
-            </div>
+                  <!-- 检查日 -->
+                  <span
+                    v-if="!isEditing(task.id,'collab_next_check')"
+                    class="ct-cell editable"
+                    :class="{'ct-empty':!task.collab_next_check,'ct-date-due':isCollabDue(task)}"
+                    @click="startEdit(task.id,'collab_next_check',$event)"
+                  >{{ fmtDate(task.collab_next_check) || '—' }}</span>
+                  <input v-else type="date" class="il-inp ct-inp" :value="task.collab_next_check"
+                    @blur="saveEdit(task,'collab_next_check',$event.target.value)"
+                    @keydown.enter.prevent="saveEdit(task,'collab_next_check',$event.target.value)"
+                    @keydown.escape.prevent="editingCell=null" autofocus />
+
+                  <!-- 操作 -->
+                  <div class="hov-acts" style="justify-content:flex-end">
+                    <button @click.stop="markDone(task.id)" title="完成">✓</button>
+                    <button @click.stop="assignZone(task.id,'inbox')" title="退回">↩</button>
+                    <button @click.stop="removeTask(task.id)" class="del" title="删除">×</button>
+                  </div>
+                </div>
+              </template>
+            </draggable>
           </template>
-          <p v-else class="sec-empty">无协作跟进事项</p>
 
           <div v-if="addingMode==='collab'" class="il-add">
             <input
@@ -959,13 +976,21 @@ async function genWeekSummary() {
 /* ── 协作表格 ── */
 .ct-hd, .ct-row {
   display: grid;
-  grid-template-columns: 1fr 76px 100px 52px 60px;
+  grid-template-columns: 16px 1fr 76px 100px 52px 60px;
   gap: 8px;
   align-items: center;
   min-height: 34px;
   padding: 0 5px;
   border-radius: 4px;
 }
+.ct-handle {
+  color: #c8cdd9;
+  font-size: 13px;
+  cursor: grab;
+  user-select: none;
+  line-height: 1;
+}
+.ct-handle:hover { color: #8891a7; }
 .ct-hd {
   font-size: 10.5px;
   color: #c0c5cf;
@@ -1138,8 +1163,9 @@ async function genWeekSummary() {
   .dp { padding: 18px 14px 50px; }
   .dp-body { grid-template-columns: 1fr; }
   .dp-inbox { position: static; max-height: none; margin-top: 28px; }
-  .ct-hd, .ct-row { grid-template-columns: 1fr 68px 52px 50px; }
-  .ct-hd span:nth-child(3), .ct-row .ct-cell:nth-child(3) { display: none; }
+  .ct-hd, .ct-row { grid-template-columns: 16px 1fr 52px 50px; }
+  .ct-hd span:nth-child(3), .ct-hd span:nth-child(4),
+  .ct-row > *:nth-child(3), .ct-row > *:nth-child(4) { display: none; }
 }
 @media (max-width: 480px) {
   .dp-date { font-size: 20px; }
