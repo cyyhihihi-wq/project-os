@@ -250,8 +250,20 @@ export const useTasksStore = defineStore('tasks', {
 
         const merged = tasks.map(t => {
           const local = localById[t.id]
-          // 优先级：云端 mode（最可靠，跨设备同步）> modesMap > localById > 默认 inbox
-          const savedMode = t.mode || modesMap[t.id] || local?.mode || 'inbox'
+          // 优先级说明：
+          // - 云端 mode 为非 inbox（用户在其他设备明确设置过）→ 以云端为准
+          // - 云端 mode 为 null / 'inbox' → 优先信任本地（modesMap / local）
+          //   原因：'inbox' 可能是 DB DEFAULT 默认值，并非用户主动操作的结果
+          const cloudMode = t.mode && t.mode !== 'inbox' ? t.mode : null
+          const localMode = modesMap[t.id] || local?.mode || null
+          const savedMode = cloudMode || localMode || 'inbox'
+
+          // ⭐ 首次愈合同步：本地有非 inbox 区域但云端还是 null/inbox，
+          //    则把本地值推送到云端，确保下次跨设备读到正确区域
+          if (!cloudMode && localMode && localMode !== 'inbox') {
+            syncUpdate('tasks', t.id, { mode: localMode })
+          }
+
           return withDefaults({
             ...t,
             // 从本地恢复云端不存储的字段
