@@ -27,10 +27,12 @@ function withDefaults(t) {
   }
 }
 
-/** 从 changes 中提取仅本地存储的字段（不同步到云端） */
+/** 从 changes 中提取仅本地存储的字段（不同步到云端）
+ *  注：mode 已同步到云端（tasks.mode 列），不再排除
+ */
 function splitCloudFields(changes) {
   const { focus_subtasks, focus_time_start, focus_time_end, focus_goal,
-          collab_owner, collab_status, collab_next_check, mode, ...cloud } = changes
+          collab_owner, collab_status, collab_next_check, ...cloud } = changes
   return cloud
 }
 
@@ -103,9 +105,9 @@ export const useTasksStore = defineStore('tasks', {
       })
       this.items.unshift(task)
       persistTasks(this.items)
-      // 云端只同步基础字段
+      // 云端同步（mode 现在也同步，其余本地专属字段仍排除）
       const { focus_subtasks, focus_time_start, focus_time_end, focus_goal,
-              collab_owner, collab_status, collab_next_check, mode, ...cloudTask } = task
+              collab_owner, collab_status, collab_next_check, ...cloudTask } = task
       syncCreate('tasks', cloudTask)
       return task
     },
@@ -248,8 +250,8 @@ export const useTasksStore = defineStore('tasks', {
 
         const merged = tasks.map(t => {
           const local = localById[t.id]
-          // 优先级：modesMap（最可靠）> localById（次可靠）> 默认 inbox
-          const savedMode = modesMap[t.id] || local?.mode || 'inbox'
+          // 优先级：云端 mode（最可靠，跨设备同步）> modesMap > localById > 默认 inbox
+          const savedMode = t.mode || modesMap[t.id] || local?.mode || 'inbox'
           return withDefaults({
             ...t,
             // 从本地恢复云端不存储的字段
