@@ -28,11 +28,11 @@ function withDefaults(t) {
 }
 
 /** 从 changes 中提取仅本地存储的字段（不同步到云端）
- *  注：mode 已同步到云端（tasks.mode 列），不再排除
+ *  focus_time_start / focus_time_end 是已废弃的 UI 字段，保持本地存储即可。
+ *  其余字段（mode / focus_goal / focus_subtasks / collab_* 等）全部同步到云端。
  */
 function splitCloudFields(changes) {
-  const { focus_subtasks, focus_time_start, focus_time_end, focus_goal,
-          collab_owner, collab_status, collab_next_check, ...cloud } = changes
+  const { focus_time_start, focus_time_end, ...cloud } = changes
   return cloud
 }
 
@@ -105,9 +105,8 @@ export const useTasksStore = defineStore('tasks', {
       })
       this.items.unshift(task)
       persistTasks(this.items)
-      // 云端同步（mode 现在也同步，其余本地专属字段仍排除）
-      const { focus_subtasks, focus_time_start, focus_time_end, focus_goal,
-              collab_owner, collab_status, collab_next_check, ...cloudTask } = task
+      // 云端同步（只排除已废弃的时间字段）
+      const { focus_time_start, focus_time_end, ...cloudTask } = task
       syncCreate('tasks', cloudTask)
       return task
     },
@@ -168,6 +167,7 @@ export const useTasksStore = defineStore('tasks', {
       t.focus_subtasks.push(sub)
       t.updated_at = new Date().toISOString()
       persistTasks(this.items)
+      syncUpdate('tasks', taskId, { focus_subtasks: t.focus_subtasks, updated_at: t.updated_at })
       return sub
     },
 
@@ -179,6 +179,7 @@ export const useTasksStore = defineStore('tasks', {
       s.done = !s.done
       t.updated_at = new Date().toISOString()
       persistTasks(this.items)
+      syncUpdate('tasks', taskId, { focus_subtasks: t.focus_subtasks, updated_at: t.updated_at })
     },
 
     removeFocusSubtask(taskId, subtaskId) {
@@ -187,6 +188,7 @@ export const useTasksStore = defineStore('tasks', {
       t.focus_subtasks = (t.focus_subtasks || []).filter(s => s.id !== subtaskId)
       t.updated_at = new Date().toISOString()
       persistTasks(this.items)
+      syncUpdate('tasks', taskId, { focus_subtasks: t.focus_subtasks, updated_at: t.updated_at })
     },
 
     updateFocusSubtask(taskId, subtaskId, newText) {
@@ -197,6 +199,7 @@ export const useTasksStore = defineStore('tasks', {
       s.text = newText.trim()
       t.updated_at = new Date().toISOString()
       persistTasks(this.items)
+      syncUpdate('tasks', taskId, { focus_subtasks: t.focus_subtasks, updated_at: t.updated_at })
     },
 
     // ── 周重点工作便签 ──
@@ -250,32 +253,41 @@ export const useTasksStore = defineStore('tasks', {
 
         const merged = tasks.map(t => {
           const local = localById[t.id]
-          // 优先级说明：
-          // - 云端 mode 为非 inbox（用户在其他设备明确设置过）→ 以云端为准
-          // - 云端 mode 为 null / 'inbox' → 优先信任本地（modesMap / local）
-          //   原因：'inbox' 可能是 DB DEFAULT 默认值，并非用户主动操作的结果
+
+          // ── mode 合并 ──
+          // 云端非 inbox → 以云端为准（其他设备明确设置过）
+          // 云端 null/inbox → 优先本地（可能是 DEFAULT 初始值）
           const cloudMode = t.mode && t.mode !== 'inbox' ? t.mode : null
           const localMode = modesMap[t.id] || local?.mode || null
           const savedMode = cloudMode || localMode || 'inbox'
 
-          // ⭐ 首次愈合同步：本地有非 inbox 区域但云端还是 null/inbox，
-          //    则把本地值推送到云端，确保下次跨设备读到正确区域
-          if (!cloudMode && localMode && localMode !== 'inbox') {
-            syncUpdate('tasks', t.id, { mode: localMode })
-          }
+          // ── 其他字段合并：云端有值优先，否则用本地 ──
+          const savedFocusGoal      = t.focus_goal      != null ? t.focus_goal      : (local?.focus_goal      || '')
+          const savedFocusSubtasks  = t.focus_subtasks  != null ? t.focus_subtasks  : (local?.focus_subtasks  || [])
+          const savedCollabOwner    = t.collab_owner    != null ? t.collab_owner    : (local?.collab_owner    || '')
+          const savedCollabStatus   = t.collab_status   != null ? t.collab_status   : (local?.collab_status   || '')
+          const savedCollabNextCheck= t.collab_next_check != null ? t.collab_next_check : (local?.collab_next_check || '')
+
+          // ⭐ 愈合同步：云端字段为 null（列刚添加），但本地有数据 → 一次性推送到云端
+          const heal = {}
+          if (!cloudMode && localMode && localMode !== 'inbox')          heal.mode = localMode
+          if (t.focus_goal      == null && savedFocusGoal)               heal.focus_goal = savedFocusGoal
+          if (t.focus_subtasks  == null && savedFocusSubtasks.length)    heal.focus_subtasks = savedFocusSubtasks
+          if (t.collab_owner    == null && savedCollabOwner)             heal.collab_owner = savedCollabOwner
+          if (t.collab_status   == null && savedCollabStatus)            heal.collab_status = savedCollabStatus
+          if (t.collab_next_check == null && savedCollabNextCheck)       heal.collab_next_check = savedCollabNextCheck
+          if (Object.keys(heal).length > 0) syncUpdate('tasks', t.id, heal)
 
           return withDefaults({
             ...t,
-            // 从本地恢复云端不存储的字段
             mode: savedMode,
-            focus_subtasks: local?.focus_subtasks || [],
+            focus_goal: savedFocusGoal,
+            focus_subtasks: savedFocusSubtasks,
             focus_time_start: local?.focus_time_start || '',
             focus_time_end: local?.focus_time_end || '',
-            focus_goal: local?.focus_goal || '',
-            collab_owner: local?.collab_owner || '',
-            collab_status: local?.collab_status || '',
-            collab_next_check: local?.collab_next_check || '',
-            // 迁移旧状态
+            collab_owner: savedCollabOwner,
+            collab_status: savedCollabStatus,
+            collab_next_check: savedCollabNextCheck,
             status: (t.status === 'waiting' || t.status === 'todo') ? 'doing' : t.status,
           })
         })
