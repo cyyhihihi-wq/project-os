@@ -9,7 +9,7 @@ import {
   persistFocusNotes,
 } from '../data/repositories/taskRepository.js'
 import { supabase } from '../lib/supabase.js'
-import { syncCreate, syncUpdate, syncDelete, syncWeekReview } from '../lib/cloudSync.js'
+import { syncCreate, syncUpdate, syncDelete, syncWeekReview, syncWeekFocusNote } from '../lib/cloudSync.js'
 
 
 /** 迁移：确保 task 对象包含所有新字段的默认值 */
@@ -207,6 +207,7 @@ export const useTasksStore = defineStore('tasks', {
     saveWeekFocusNote(weekKey, text) {
       this.weekFocusNotes[weekKey] = text
       persistFocusNotes(this.weekFocusNotes)
+      syncWeekFocusNote(weekKey, text)
     },
 
     getWeekFocusNote(weekKey) {
@@ -329,6 +330,24 @@ export const useTasksStore = defineStore('tasks', {
         })
         this.weekReviews = reviewMap
         persistReviews(reviewMap)
+      }
+
+      // week_focus_notes（本周重点工作）
+      const { data: focusNotes, error: fnErr } = await supabase
+        .from('week_focus_notes')
+        .select('*')
+        .eq('user_id', userId)
+
+      if (fnErr) {
+        console.error('[cloud] week_focus_notes fetch error:', fnErr.message)
+      } else {
+        const noteMap = {}
+        focusNotes.forEach(n => {
+          noteMap[n.week_label] = n.content || ''
+        })
+        // 合并：云端有值覆盖本地，本地有但云端无则保留本地
+        this.weekFocusNotes = { ...this.weekFocusNotes, ...noteMap }
+        persistFocusNotes(this.weekFocusNotes)
       }
     },
   },

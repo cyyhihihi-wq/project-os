@@ -679,26 +679,30 @@ async function genWeekSummary() {
       </main>
 
       <!-- ─── 右列：收件箱 + 本周重点工作 ─── -->
-      <aside class="dp-inbox">
-        <div class="sec-hd" style="margin-bottom:10px">
-          <span class="sec-lbl">收件箱</span>
-          <span v-if="inboxTasks.length" class="sec-cnt">{{ inboxTasks.length }}</span>
-        </div>
-        <p v-if="!inboxTasks.length" class="inbox-empty">空的，放心清零</p>
-        <div v-else class="inbox-list">
-          <div v-for="task in inboxTasks" :key="task.id" class="inbox-row">
-            <span class="inbox-title" :title="task.title">{{ task.title }}</span>
-            <div class="inbox-acts hov-acts">
-              <button @click.stop="assignZone(task.id,'focus')" title="→ 沉浸">◎</button>
-              <button @click.stop="assignZone(task.id,'quick')" title="→ 快速">□</button>
-              <button @click.stop="assignZone(task.id,'collab')" title="→ 协作">↗</button>
-              <button @click.stop="markDone(task.id)" title="直接完成">✓</button>
-              <button @click.stop="removeTask(task.id)" class="del" title="删除">×</button>
+      <aside class="dp-aside">
+
+        <!-- 收件箱卡片 -->
+        <div class="inbox-card">
+          <div class="sec-hd" style="margin-bottom:10px">
+            <span class="sec-lbl">收件箱</span>
+            <span v-if="inboxTasks.length" class="sec-cnt">{{ inboxTasks.length }}</span>
+          </div>
+          <p v-if="!inboxTasks.length" class="inbox-empty">空的，放心清零</p>
+          <div v-else class="inbox-list">
+            <div v-for="task in inboxTasks" :key="task.id" class="inbox-row">
+              <span class="inbox-title" :title="task.title">{{ task.title }}</span>
+              <div class="inbox-acts hov-acts">
+                <button @click.stop="assignZone(task.id,'focus')" title="→ 沉浸">◎</button>
+                <button @click.stop="assignZone(task.id,'quick')" title="→ 快速">□</button>
+                <button @click.stop="assignZone(task.id,'collab')" title="→ 协作">↗</button>
+                <button @click.stop="markDone(task.id)" title="直接完成">✓</button>
+                <button @click.stop="removeTask(task.id)" class="del" title="删除">×</button>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- 本周重点工作 -->
+        <!-- 本周重点工作卡片 -->
         <div class="wfn-block">
           <div class="sec-hd" style="margin-bottom:8px">
             <span class="sec-lbl">本周重点工作</span>
@@ -710,6 +714,7 @@ async function genWeekSummary() {
             @input="weekFocusNote = $event.target.value"
           ></textarea>
         </div>
+
       </aside>
 
     </div><!-- end dp-body -->
@@ -760,12 +765,19 @@ async function genWeekSummary() {
 .dp-stats { margin-left: 6px; font-size: 11px; color: #ccc; }
 
 /* ── Capture ── */
-.dp-capture { margin-bottom: 24px; }
+.dp-capture {
+  margin-bottom: 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 4px 8px;
+}
 .capture-idle {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 9px 12px;
+  padding: 9px 8px;
   border-radius: 7px;
   cursor: text;
   color: #bbb;
@@ -773,13 +785,13 @@ async function genWeekSummary() {
   transition: background 0.1s, border-color 0.1s;
   border: 1px dashed transparent;
 }
-.capture-idle:hover { background: #f9fafb; border-color: #e2e5ed; color: #888; }
+.capture-idle:hover { background: #f5f6fa; border-color: #e2e5ed; color: #888; }
 .capture-icon { font-size: 16px; line-height: 1; color: var(--color-primary); opacity: 0.7; }
 .capture-ta {
   width: 100%;
-  border: 1px solid var(--color-border);
+  border: none;
   border-radius: 7px;
-  padding: 10px 13px;
+  padding: 10px 8px;
   font-size: 13.5px;
   line-height: 1.65;
   font-family: inherit;
@@ -800,18 +812,19 @@ async function genWeekSummary() {
 .dp-body {
   display: grid;
   grid-template-columns: 1fr 256px;
-  gap: 0 36px;
+  gap: 0 20px;
   align-items: start;
 }
-.dp-main { display: flex; flex-direction: column; gap: 0; }
+.dp-main { display: flex; flex-direction: column; gap: 12px; }
 
-/* ── Section ── */
+/* ── Section（白色卡片）── */
 .dp-sec {
-  padding-bottom: 28px;
-  margin-bottom: 4px;
-  border-bottom: 1px solid #f0f1f4;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px 20px 16px;
 }
-.dp-sec:last-of-type { border-bottom: none; }
 .sec-hd { display: flex; align-items: center; gap: 7px; margin-bottom: 14px; }
 .sec-lbl {
   font-size: 10.5px;
@@ -1087,7 +1100,13 @@ async function genWeekSummary() {
 .tag-sm { font-size: 10.5px; }
 
 /* ── 已完成列表 ── */
-.done-wrap, .sum-wrap { margin-top: 8px; margin-bottom: 6px; }
+.done-wrap, .sum-wrap {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 12px 16px;
+}
 .toggle-btn {
   background: none;
   border: none;
@@ -1116,8 +1135,8 @@ async function genWeekSummary() {
 /* ── 周总结 ── */
 .sum-panel {
   margin-top: 10px;
-  background: #f9fafb;
-  border-radius: 7px;
+  background: var(--color-bg);
+  border-radius: 6px;
   padding: 14px 16px;
 }
 .sum-top { display: flex; justify-content: flex-end; gap: 7px; margin-bottom: 12px; }
@@ -1135,15 +1154,24 @@ async function genWeekSummary() {
 .sum-body { font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
 .err-txt { font-size: 12px; color: #ef4444; margin-bottom: 8px; }
 
-/* ── 收件箱 ── */
-.dp-inbox {
-  background: #f7f8fa;
-  border-radius: 9px;
-  padding: 14px 14px 12px;
+/* ── 右侧列容器 ── */
+.dp-aside {
   position: sticky;
   top: 16px;
-  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: calc(100vh - 60px);
   overflow-y: auto;
+}
+
+/* ── 收件箱卡片 ── */
+.inbox-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px 14px 12px;
 }
 .inbox-empty { font-size: 12px; color: #d0d5de; padding: 4px 0; }
 .inbox-list { display: flex; flex-direction: column; gap: 1px; }
@@ -1155,7 +1183,7 @@ async function genWeekSummary() {
   padding: 2px 5px;
   border-radius: 5px;
 }
-.inbox-row:hover { background: #eef0f3; }
+.inbox-row:hover { background: #f5f6fa; }
 .inbox-row:hover .hov-acts { display: flex; }
 .inbox-title {
   flex: 1;
@@ -1169,11 +1197,13 @@ async function genWeekSummary() {
 .inbox-acts { gap: 1px; }
 .inbox-acts button { font-size: 11.5px; padding: 2px 4px; }
 
-/* ── 本周重点工作 ── */
+/* ── 本周重点工作（独立白卡）── */
 .wfn-block {
-  margin-top: 22px;
-  padding-top: 18px;
-  border-top: 1px solid #f0f1f4;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px;
 }
 .wfn-area {
   width: 100%;

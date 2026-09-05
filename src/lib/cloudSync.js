@@ -86,6 +86,43 @@ export async function syncDelete(table, id) {
 }
 
 /**
+ * week_focus_notes 专用写入：先查再写，与 syncWeekReview 相同逻辑。
+ * 对应 Supabase 表 week_focus_notes(id, user_id, week_label, content, created_at, updated_at)。
+ */
+export async function syncWeekFocusNote(weekLabel, content) {
+  const userId = getUserId()
+  if (!userId) return
+
+  const now = new Date().toISOString()
+
+  const { data: existing, error: queryError } = await supabase
+    .from('week_focus_notes')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('week_label', weekLabel)
+    .maybeSingle()
+
+  if (queryError) {
+    handleError('week_focus_notes', 'query', queryError)
+    return
+  }
+
+  if (existing) {
+    const { error } = await supabase
+      .from('week_focus_notes')
+      .update({ content, updated_at: now })
+      .eq('id', existing.id)
+      .eq('user_id', userId)
+    if (error) handleError('week_focus_notes', 'update', error)
+  } else {
+    const { error } = await supabase
+      .from('week_focus_notes')
+      .insert({ user_id: userId, week_label: weekLabel, content, created_at: now, updated_at: now })
+    if (error) handleError('week_focus_notes', 'insert', error)
+  }
+}
+
+/**
  * week_reviews 专用写入：先查再写，不依赖 UNIQUE(user_id, week_label) DB 约束。
  *
  * 原因：冻结方案未明确此约束是否已建立，Supabase upsert 依赖 DB 层约束才能
