@@ -332,6 +332,53 @@ async function onPaste(event) {
 
   // D: 其他（纯文字/纯 HTML 无列表）→ 不拦截，交给 Tiptap
 }
+/**
+ * 智能增加缩进：
+ * - 正常情况（有前一个兄弟节点）→ 走 ProseMirror 标准 sinkListItem
+ * - 第一项（startIndex=0，sinkListItem 返回 false）→ 手动用 transaction
+ *   将当前 <li> 内容包进一层新的同类型列表，实现更深嵌套
+ */
+function doIndent() {
+  const e = editor.value
+  if (!e) return
+
+  // ── 标准路径：有前一个兄弟，直接 sink ──
+  if (e.can().sinkListItem('listItem')) {
+    e.chain().focus().sinkListItem('listItem').run()
+    return
+  }
+
+  // ── 第一项路径：手动嵌套 ──
+  e.chain().focus().command(({ state, dispatch }) => {
+    const { schema, selection } = state
+    const { $from } = selection
+    const listItemType = schema.nodes.listItem
+
+    // 找到最内层的 listItem
+    let liDepth = -1
+    for (let d = $from.depth; d >= 0; d--) {
+      if ($from.node(d).type === listItemType) { liDepth = d; break }
+    }
+    if (liDepth < 1) return false
+
+    const parentListType = $from.node(liDepth - 1).type
+    const li = $from.node(liDepth)
+    const from = $from.before(liDepth)
+    const to = $from.after(liDepth)
+
+    try {
+      // 构建 <li><parentList><li>原内容</li></parentList></li>
+      const innerLi   = listItemType.create(null, li.content)
+      const innerList = parentListType.create(null, innerLi)
+      const outerLi   = listItemType.create(null, innerList)
+      if (dispatch) dispatch(state.tr.replaceWith(from, to, outerLi))
+      return true
+    } catch (err) {
+      console.warn('[indent] wrap failed:', err)
+      return false
+    }
+  }).run()
+}
 </script>
 
 <template>
@@ -377,8 +424,8 @@ async function onPaste(event) {
       >1.</button>
       <button
         type="button" class="rich-btn"
-        :disabled="!editor.can().sinkListItem('listItem')"
-        @mousedown.prevent="editor.chain().focus().sinkListItem('listItem').run()"
+        :disabled="!editor.isActive('listItem')"
+        @mousedown.prevent="doIndent()"
         title="增加缩进（Tab）"
       >→</button>
       <button
