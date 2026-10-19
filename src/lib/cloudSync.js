@@ -54,9 +54,12 @@ export async function syncCreate(table, data) {
 /**
  * 更新已有记录。
  * 用 id + user_id 双重定位；旧整数 ID 在 UUID 列上会触发类型错误。
- * 更新 0 行（记录不在云端）也视为同步失败，显示 banner。
+ *
+ * fallbackFullData（可选）：若更新 0 行（记录不在云端，如 Supabase 暂停期间本地创建的任务），
+ * 则自动尝试 insert 完整记录，而不是显示 banner。
+ * 传入调用方持有的完整记录对象即可（user_id / id 会自动注入，无需提前包含）。
  */
-export async function syncUpdate(table, id, changes) {
+export async function syncUpdate(table, id, changes, fallbackFullData = null) {
   const userId = getUserId()
   if (!userId) return
   const { data, error } = await supabase
@@ -65,8 +68,25 @@ export async function syncUpdate(table, id, changes) {
     .eq('id', id)
     .eq('user_id', userId)
     .select()
-  if (error || !data?.length) {
-    handleError(table, 'update', error || 'no matching record in cloud')
+
+  if (error) {
+    handleError(table, 'update', error)
+    return
+  }
+
+  if (!data?.length) {
+    // 云端无此记录（离线期间创建），若有完整数据则降级为 insert
+    if (fallbackFullData) {
+      const payload = { ...fallbackFullData, id, user_id: userId }
+      const { error: insertErr } = await supabase.from(table).insert(payload)
+      if (insertErr) {
+        console.error(`[cloud] ${table} insert-fallback failed — payload:`, JSON.stringify(payload, null, 2))
+        handleError(table, 'insert-fallback', insertErr)
+      }
+      // insert 成功 → 不触发 banner
+    } else {
+      handleError(table, 'update', 'no matching record in cloud')
+    }
   }
 }
 

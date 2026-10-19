@@ -139,7 +139,9 @@ export const useTasksStore = defineStore('tasks', {
       // 云端不同步本地专属字段
       const cloudChanges = splitCloudFields({ ...changes, updated_at: this.items[idx].updated_at })
       if (Object.keys(cloudChanges).length > 1) {
-        syncUpdate('tasks', id, cloudChanges)
+        // 传入完整任务作为 fallback：若云端无此记录（离线期间创建），自动降级为 insert
+        const fullCloudTask = splitCloudFields({ ...this.items[idx] })
+        syncUpdate('tasks', id, cloudChanges, fullCloudTask)
       }
     },
 
@@ -167,7 +169,7 @@ export const useTasksStore = defineStore('tasks', {
       t.focus_subtasks.push(sub)
       t.updated_at = new Date().toISOString()
       persistTasks(this.items)
-      syncUpdate('tasks', taskId, { focus_subtasks: t.focus_subtasks, updated_at: t.updated_at })
+      syncUpdate('tasks', taskId, { focus_subtasks: t.focus_subtasks, updated_at: t.updated_at }, splitCloudFields(t))
       return sub
     },
 
@@ -179,7 +181,7 @@ export const useTasksStore = defineStore('tasks', {
       s.done = !s.done
       t.updated_at = new Date().toISOString()
       persistTasks(this.items)
-      syncUpdate('tasks', taskId, { focus_subtasks: t.focus_subtasks, updated_at: t.updated_at })
+      syncUpdate('tasks', taskId, { focus_subtasks: t.focus_subtasks, updated_at: t.updated_at }, splitCloudFields(t))
     },
 
     removeFocusSubtask(taskId, subtaskId) {
@@ -188,7 +190,7 @@ export const useTasksStore = defineStore('tasks', {
       t.focus_subtasks = (t.focus_subtasks || []).filter(s => s.id !== subtaskId)
       t.updated_at = new Date().toISOString()
       persistTasks(this.items)
-      syncUpdate('tasks', taskId, { focus_subtasks: t.focus_subtasks, updated_at: t.updated_at })
+      syncUpdate('tasks', taskId, { focus_subtasks: t.focus_subtasks, updated_at: t.updated_at }, splitCloudFields(t))
     },
 
     updateFocusSubtask(taskId, subtaskId, newText) {
@@ -199,7 +201,7 @@ export const useTasksStore = defineStore('tasks', {
       s.text = newText.trim()
       t.updated_at = new Date().toISOString()
       persistTasks(this.items)
-      syncUpdate('tasks', taskId, { focus_subtasks: t.focus_subtasks, updated_at: t.updated_at })
+      syncUpdate('tasks', taskId, { focus_subtasks: t.focus_subtasks, updated_at: t.updated_at }, splitCloudFields(t))
     },
 
     // ── 周重点工作便签 ──
