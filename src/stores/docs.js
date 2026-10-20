@@ -77,7 +77,7 @@ export const useDocsStore = defineStore('docs', {
       const updated_at = new Date().toISOString()
       this.items[idx] = { ...this.items[idx], ...changes, updated_at }
       persistDocs(this.items)
-      syncUpdate('docs', id, { ...changes, updated_at })
+      syncUpdate('docs', id, { ...changes, updated_at }, { ...this.items[idx] })
     },
 
     remove(id) {

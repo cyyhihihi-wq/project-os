@@ -85,7 +85,8 @@ export async function syncUpdate(table, id, changes, fallbackFullData = null) {
       }
       // insert 成功 → 不触发 banner
     } else {
-      handleError(table, 'update', 'no matching record in cloud')
+      // 无完整数据无法补传，静默跳过（记录从未同步过，不是写入错误）
+      console.warn(`[cloud] ${table} update skipped — record ${id} not found in cloud (never synced, local data safe)`)
     }
   }
 }

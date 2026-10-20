@@ -36,7 +36,7 @@ export const useStylesStore = defineStore('styles', {
       if (idx === -1) return
       this.items[idx] = { ...this.items[idx], ...changes }
       this._persist()
-      syncUpdate('style_references', id, changes)
+      syncUpdate('style_references', id, changes, { ...this.items[idx] })
     },
 
     remove(id) {

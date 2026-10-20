@@ -41,7 +41,7 @@ export const useMaterialsStore = defineStore('materials', {
       if (idx === -1) return
       this.items[idx] = { ...this.items[idx], ...changes }
       this._persist()
-      syncUpdate('materials', id, changes)
+      syncUpdate('materials', id, changes, { ...this.items[idx] })
     },
 
     remove(id) {

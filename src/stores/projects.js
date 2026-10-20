@@ -51,7 +51,8 @@ export const useProjectsStore = defineStore('projects', {
       this._persist()
       // judgements / updates 是嵌套数组，不写入 projects 表
       const { judgements, updates, ...cloudChanges } = changes
-      syncUpdate('projects', id, { ...cloudChanges, updated_at: p.updated_at })
+      const fullCloudProject = { id: p.id, name: p.name, status: p.status, created_at: p.created_at }
+      syncUpdate('projects', id, { ...cloudChanges, updated_at: p.updated_at }, fullCloudProject)
     },
 
     remove(id) {
@@ -98,7 +99,8 @@ export const useProjectsStore = defineStore('projects', {
       this._persist()
       const changes = { content }
       if (createdAt) changes.created_at = createdAt
-      syncUpdate('project_judgements', judgementId, changes)
+      const fullJudgement = { id: judgementId, project_id: projectId, content: j.content, created_at: j.created_at }
+      syncUpdate('project_judgements', judgementId, changes, fullJudgement)
     },
 
     removeJudgement(projectId, judgementId) {
@@ -151,7 +153,8 @@ export const useProjectsStore = defineStore('projects', {
       Object.assign(u, changes)
       p.updated_at = new Date().toISOString()
       this._persist()
-      syncUpdate('project_updates', updateId, changes)
+      const fullUpdate = { id: updateId, project_id: projectId, title: u.title, content: u.content, tags: u.tags, highlight: u.highlight, created_at: u.created_at }
+      syncUpdate('project_updates', updateId, changes, fullUpdate)
     },
 
     removeProjectUpdate(projectId, updateId) {
