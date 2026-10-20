@@ -107,10 +107,8 @@ export async function syncDelete(table, id) {
 }
 
 /**
- * week_focus_notes 专用写入：先查再写，与 syncWeekReview 相同逻辑。
- * 对应 Supabase 表 week_focus_notes(id, user_id, week_label, content, created_at, updated_at)。
- *
- * 注：本周重点工作始终持久化在 localStorage，云端同步失败只静默日志，不触发 banner。
+ * week_focus_notes 专用写入：先查再写。
+ * 对应 Supabase 表 week_focus_notes(id, user_id TEXT, week_label, content, created_at, updated_at)。
  */
 export async function syncWeekFocusNote(weekLabel, content) {
   const userId = getUserId()
@@ -126,7 +124,7 @@ export async function syncWeekFocusNote(weekLabel, content) {
     .maybeSingle()
 
   if (queryError) {
-    console.warn('[cloud] week_focus_notes query failed (local data safe):', queryError.message)
+    handleError('week_focus_notes', 'query', queryError)
     return
   }
 
@@ -136,18 +134,18 @@ export async function syncWeekFocusNote(weekLabel, content) {
       .update({ content, updated_at: now })
       .eq('id', existing.id)
       .eq('user_id', userId)
-    if (error) console.warn('[cloud] week_focus_notes update failed (local data safe):', error.message)
+    if (error) handleError('week_focus_notes', 'update', error)
   } else {
     const { error } = await supabase
       .from('week_focus_notes')
       .insert({ user_id: userId, week_label: weekLabel, content, created_at: now, updated_at: now })
-    if (error) console.warn('[cloud] week_focus_notes insert failed (local data safe):', error.message)
+    if (error) handleError('week_focus_notes', 'insert', error)
   }
 }
 
 /**
  * week_reviews 专用写入：先查再写。
- * 周总结始终持久化在 localStorage，云端同步失败只静默日志，不触发 banner。
+ * 对应 Supabase 表 week_reviews(id, user_id TEXT, week_label, content, created_at, updated_at)。
  */
 export async function syncWeekReview(weekLabel, content) {
   const userId = getUserId()
@@ -163,7 +161,7 @@ export async function syncWeekReview(weekLabel, content) {
     .maybeSingle()
 
   if (queryError) {
-    console.warn('[cloud] week_reviews query failed (local data safe):', queryError.message)
+    handleError('week_reviews', 'query', queryError)
     return
   }
 
@@ -173,11 +171,11 @@ export async function syncWeekReview(weekLabel, content) {
       .update({ content, updated_at: now })
       .eq('id', existing.id)
       .eq('user_id', userId)
-    if (error) console.warn('[cloud] week_reviews update failed (local data safe):', error.message)
+    if (error) handleError('week_reviews', 'update', error)
   } else {
     const { error } = await supabase
       .from('week_reviews')
       .insert({ user_id: userId, week_label: weekLabel, content, created_at: now, updated_at: now })
-    if (error) console.warn('[cloud] week_reviews insert failed (local data safe):', error.message)
+    if (error) handleError('week_reviews', 'insert', error)
   }
 }
