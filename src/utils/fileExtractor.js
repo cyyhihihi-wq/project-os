@@ -2,13 +2,13 @@
  * fileExtractor.js
  * 统一文件内容提取入口
  *
- * 支持：txt / md / docx / pdf
+ * 支持：txt / md / html / docx / pdf
  *
  * 统一返回结构（ExtractResult）：
  *   { success, fileType, contentHtml?, contentText?, error? }
  *   - success    : boolean
- *   - fileType   : 'docx' | 'pdf' | 'txt' | 'md' | string
- *   - contentHtml: 优先使用；含表格/标题/列表的 HTML（docx 有，pdf/txt/md 无）
+ *   - fileType   : 'docx' | 'pdf' | 'txt' | 'md' | 'html' | string
+ *   - contentHtml: 优先使用；含表格/标题/列表的 HTML（docx / html 有，pdf/txt/md 无）
  *   - contentText: 纯文本；供 AI prompt 或降级显示
  *   - error      : success=false 时的用户可读错误信息
  *
@@ -77,6 +77,8 @@ export async function extractTextFromFile(file) {
       } else {
         result = { success: true, fileType: ext, contentText: text }
       }
+    } else if (ext === 'html' || ext === 'htm') {
+      result = await _extractHtml(file)
     } else if (ext === 'docx') {
       result = await _extractDocx(file, ext)
     } else if (ext === 'pdf') {
@@ -85,7 +87,7 @@ export async function extractTextFromFile(file) {
       result = {
         success: false,
         fileType: ext,
-        error: `不支持的文件类型 .${ext}（支持：txt、md、docx、pdf）`,
+        error: `不支持的文件类型 .${ext}（支持：txt、md、html、docx、pdf）`,
       }
     }
   } catch (err) {
@@ -104,6 +106,38 @@ export async function extractTextFromFile(file) {
     contentHtmlLen: result.contentHtml?.length,
   }))
   return result
+}
+
+// ---------------------------------------------------------------------------
+// html — 读取原始 HTML，提取 body 内容，过滤危险标签
+// ---------------------------------------------------------------------------
+
+async function _extractHtml(file) {
+  const raw = await file.text()
+  if (!raw.trim()) {
+    return { success: false, fileType: 'html', error: 'HTML 文件内容为空' }
+  }
+
+  // 用 DOMParser 解析，浏览器原生支持，无需额外依赖
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(raw, 'text/html')
+
+  // 移除不需要的元素：script / style / head 相关
+  const removeSelectors = ['script', 'style', 'noscript', 'iframe', 'object', 'embed', 'link', 'meta']
+  removeSelectors.forEach(sel => {
+    doc.querySelectorAll(sel).forEach(el => el.remove())
+  })
+
+  // 取 body 内容；若无 body（片段型 HTML）则取整个文档
+  const body = doc.body || doc.documentElement
+  const contentHtml = body.innerHTML.trim()
+
+  if (!contentHtml) {
+    return { success: false, fileType: 'html', error: 'HTML 文件未找到可提取的正文内容' }
+  }
+
+  const contentText = _htmlToPlain(contentHtml)
+  return { success: true, fileType: 'html', contentHtml, contentText }
 }
 
 // ---------------------------------------------------------------------------

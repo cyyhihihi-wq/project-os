@@ -806,7 +806,7 @@ function nowDatetimeLocal() {
               <TagPicker v-model="progressTags" scope-type="project" :scope-id="String(selectedId)" />
             </div>
             <div class="mt-8">
-              <FileUploader label="导入文件（txt / md / docx / pdf，支持拖拽）" accept=".txt,.md,.docx,.pdf" @files-changed="onProgressFiles" />
+              <FileUploader label="导入文件（txt / md / html / docx / pdf，支持拖拽）" accept=".txt,.md,.html,.htm,.docx,.pdf" @files-changed="onProgressFiles" />
             </div>
             <div class="flex-center gap-8 mt-8">
               <label class="flex-center gap-4" style="cursor:pointer;font-size:13px">
