@@ -349,9 +349,54 @@ const progressImportedHtml = ref('')
 const progressTags = ref([])
 const progressHighlight = ref(false)
 const progressDraftTime = ref('')
+const progressAttachments = ref([])   // [{id, name, type, size, data: dataURL}]
 const aiProcessing = ref(false)
 const aiResult = ref(null)
 const progressAiError = ref('')
+
+// ── 附件工具函数 ──
+
+function fmtFileSize(bytes) {
+  if (bytes < 1024) return `${bytes}B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = e => resolve(e.target.result)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
+function downloadAttachment(att) {
+  const a = document.createElement('a')
+  a.href = att.data
+  a.download = att.name
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
+
+async function onAttachmentPick(event, target) {
+  const files = Array.from(event.target.files || [])
+  event.target.value = ''
+  for (const f of files) {
+    if (f.size > 10 * 1024 * 1024) {
+      progressAiError.value = `附件「${f.name}」超过 10MB 限制，已跳过`
+      continue
+    }
+    const data = await fileToBase64(f)
+    const att = { id: crypto.randomUUID(), name: f.name, type: f.type || 'application/octet-stream', size: f.size, data }
+    if (target === 'new') {
+      progressAttachments.value.push(att)
+    } else {
+      updateEditDraft.value.attachments = [...(updateEditDraft.value.attachments || []), att]
+    }
+  }
+}
 
 function startAddProgress() {
   progressDraftTime.value = nowDatetimeLocal()
@@ -361,6 +406,7 @@ function startAddProgress() {
   progressImportedHtml.value = ''
   progressTags.value = []
   progressHighlight.value = false
+  progressAttachments.value = []
   showAddProgress.value = true
 }
 
@@ -377,6 +423,7 @@ function saveProgressDirect() {
     content,
     tags: progressTags.value,
     highlight: progressHighlight.value,
+    attachments: progressAttachments.value,
     created_at: iso,
   })
   progressTitle.value = ''
@@ -384,6 +431,7 @@ function saveProgressDirect() {
   progressImportedHtml.value = ''
   progressTags.value = []
   progressHighlight.value = false
+  progressAttachments.value = []
   showAddProgress.value = false
 }
 
@@ -401,6 +449,7 @@ async function submitProgress() {
       tags: result.suggestedTags?.length > 0 ? result.suggestedTags : progressTags.value,
       highlight: progressHighlight.value,
       created_at: iso,
+      attachments: progressAttachments.value,
     }
   } catch (err) {
     progressAiError.value = err.message || 'AI 整理失败，请重试或使用普通保存'
@@ -433,6 +482,7 @@ function confirmProgress() {
     content: aiResult.value.content,
     tags: aiResult.value.tags,
     highlight: aiResult.value.highlight,
+    attachments: aiResult.value.attachments || progressAttachments.value,
     created_at: iso,
   })
   progressTitle.value = ''
@@ -440,6 +490,7 @@ function confirmProgress() {
   progressImportedHtml.value = ''
   progressTags.value = []
   progressHighlight.value = false
+  progressAttachments.value = []
   aiResult.value = null
   showAddProgress.value = false
 }
@@ -458,6 +509,7 @@ function startEditUpdate(u) {
     content: u.content,
     tags: [...(u.tags || [])],
     highlight: u.highlight || false,
+    attachments: [...(u.attachments || [])],
   }
   updateEditDraftTime.value = toDatetimeLocal(u.created_at)
 }
@@ -470,6 +522,7 @@ function saveUpdateEdit() {
     content: updateEditDraft.value.content.trim(),
     tags: updateEditDraft.value.tags,
     highlight: updateEditDraft.value.highlight,
+    attachments: updateEditDraft.value.attachments,
     ...(iso ? { created_at: iso } : {}),
   })
   editingUpdateId.value = null
@@ -488,6 +541,7 @@ async function saveUpdateEditWithAI() {
       content: result.content || updateEditDraft.value.content.trim(),
       tags: result.suggestedTags?.length > 0 ? result.suggestedTags : updateEditDraft.value.tags,
       highlight: updateEditDraft.value.highlight,
+      attachments: updateEditDraft.value.attachments,
       ...(iso ? { created_at: iso } : {}),
     })
     editingUpdateId.value = null
@@ -596,6 +650,7 @@ function nowDatetimeLocal() {
           <div v-if="r.snippet" class="text-xs text-secondary search-snippet">{{ r.snippet }}</div>
           <div v-if="r.update.tags?.length" class="flex gap-4 mt-6" style="flex-wrap:wrap">
             <span v-for="tag in r.update.tags" :key="tag" class="tag" style="font-size:11px;padding:1px 6px">{{ tag }}</span>
+            <span v-if="r.update.attachments?.length" class="tag" style="font-size:11px;padding:1px 6px;color:var(--color-text-secondary)">📎{{ r.update.attachments.length }}</span>
           </div>
         </div>
       </template>
@@ -814,11 +869,28 @@ function nowDatetimeLocal() {
                 ⭐ 核心进展
               </label>
             </div>
+            <!-- 附件 -->
+            <div class="mt-8">
+              <div class="flex-between mb-4">
+                <label class="text-xs text-secondary">附件</label>
+                <label class="attach-pick-btn">
+                  <input type="file" multiple style="display:none" @change="onAttachmentPick($event, 'new')" />
+                  + 添加附件
+                </label>
+              </div>
+              <div v-if="progressAttachments.length" class="attachment-list">
+                <div v-for="att in progressAttachments" :key="att.id" class="attachment-chip">
+                  <span class="attachment-name" :title="att.name">{{ att.name }}</span>
+                  <span class="attachment-size">{{ fmtFileSize(att.size) }}</span>
+                  <button class="attachment-del" @click="progressAttachments = progressAttachments.filter(a => a.id !== att.id)" title="移除">×</button>
+                </div>
+              </div>
+            </div>
             <div v-if="progressAiError" class="text-xs mt-8" style="color:var(--color-danger);background:#fff0f0;border:1px solid var(--color-danger);border-radius:4px;padding:6px 10px">{{ progressAiError }}</div>
             <div class="flex gap-8 mt-8" style="align-items:center">
               <label class="text-xs text-secondary" style="flex-shrink:0">记录时间</label>
               <input type="datetime-local" v-model="progressDraftTime" style="width:auto;flex:1;font-size:12px" />
-              <button class="small" @click="showAddProgress = false; progressTitle = ''; progressDraft = ''; progressImportedHtml = ''; progressHighlight = false; progressAiError = ''" :disabled="aiProcessing">取消</button>
+              <button class="small" @click="showAddProgress = false; progressTitle = ''; progressDraft = ''; progressImportedHtml = ''; progressHighlight = false; progressAiError = ''; progressAttachments = []" :disabled="aiProcessing">取消</button>
               <button class="small" @click="saveProgressDirect" :disabled="aiProcessing">保存</button>
               <button class="small primary" @click="submitProgress" :disabled="aiProcessing">
                 {{ aiProcessing ? 'AI 整理中...' : '保存并 AI 整理' }}
@@ -889,6 +961,23 @@ function nowDatetimeLocal() {
                   ⭐ 核心进展
                 </label>
               </div>
+              <!-- 附件 -->
+              <div class="mb-8">
+                <div class="flex-between mb-4">
+                  <label class="text-xs text-secondary">附件</label>
+                  <label class="attach-pick-btn">
+                    <input type="file" multiple style="display:none" @change="onAttachmentPick($event, 'edit')" />
+                    + 添加附件
+                  </label>
+                </div>
+                <div v-if="updateEditDraft.attachments?.length" class="attachment-list">
+                  <div v-for="att in updateEditDraft.attachments" :key="att.id" class="attachment-chip">
+                    <span class="attachment-name" :title="att.name">{{ att.name }}</span>
+                    <span class="attachment-size">{{ fmtFileSize(att.size) }}</span>
+                    <button class="attachment-del" @click="updateEditDraft.attachments = updateEditDraft.attachments.filter(a => a.id !== att.id)" title="移除">×</button>
+                  </div>
+                </div>
+              </div>
               <div v-if="editUpdateError" class="text-xs mb-8" style="color:var(--color-danger)">{{ editUpdateError }}</div>
               <div class="flex gap-8" style="align-items:center">
                 <label class="text-xs text-secondary" style="flex-shrink:0">记录时间</label>
@@ -910,6 +999,7 @@ function nowDatetimeLocal() {
                 </div>
                 <div class="flex gap-8" style="align-items:center">
                   <span v-for="tag in item.data.tags" :key="tag" class="tag">{{ tag }}</span>
+                  <span v-if="item.data.attachments?.length" class="tag" style="font-size:11px;color:var(--color-text-secondary);border-color:var(--color-border)">📎{{ item.data.attachments.length }}</span>
                   <!-- ⋯ more menu -->
                   <div style="position:relative">
                     <button
@@ -936,6 +1026,13 @@ function nowDatetimeLocal() {
                 </div>
               </div>
               <div v-if="expandedUpdateId === item.data.id" class="mt-8 rich-content" v-html="item.data.content" />
+              <div v-if="expandedUpdateId === item.data.id && item.data.attachments?.length" class="attachment-list mt-8">
+                <div v-for="att in item.data.attachments" :key="att.id" class="attachment-chip attachment-chip--download" @click.stop="downloadAttachment(att)" title="点击下载">
+                  <span class="attachment-icon">📎</span>
+                  <span class="attachment-name" :title="att.name">{{ att.name }}</span>
+                  <span class="attachment-size">{{ fmtFileSize(att.size) }}</span>
+                </div>
+              </div>
             </div>
           </div>
         </template>
@@ -1188,5 +1285,79 @@ function nowDatetimeLocal() {
 }
 .drag-handle:hover {
   color: var(--color-primary) !important;
+}
+
+/* ── 附件 ── */
+.attach-pick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  font-size: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.15s;
+}
+.attach-pick-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  max-width: 260px;
+}
+.attachment-chip--download {
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.attachment-chip--download:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+.attachment-icon {
+  flex-shrink: 0;
+  font-size: 13px;
+}
+.attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+  color: var(--color-text);
+}
+.attachment-size {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+.attachment-del {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0 0 2px;
+}
+.attachment-del:hover {
+  color: var(--color-danger);
+  background: none;
 }
 </style>

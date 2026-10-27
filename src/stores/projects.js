@@ -128,6 +128,7 @@ export const useProjectsStore = defineStore('projects', {
         content: data.content,
         tags: data.tags || [],
         highlight: data.highlight || false,
+        attachments: data.attachments || [],   // 本地存储，不同步云端
         created_at: data.created_at || new Date().toISOString(),
       }
       p.updates.unshift(u)
@@ -153,8 +154,29 @@ export const useProjectsStore = defineStore('projects', {
       Object.assign(u, changes)
       p.updated_at = new Date().toISOString()
       this._persist()
-      const fullUpdate = { id: updateId, project_id: projectId, title: u.title, content: u.content, tags: u.tags, highlight: u.highlight, created_at: u.created_at }
-      syncUpdate('project_updates', updateId, changes, fullUpdate)
+      // attachments 含 Base64 数据，只存本地，不同步云端
+      const { attachments: _atts, ...cloudChanges } = changes
+      const { attachments: _ua, ...fullU } = u
+      syncUpdate('project_updates', updateId, cloudChanges, { ...fullU, project_id: projectId })
+    },
+
+    addUpdateAttachment(projectId, updateId, att) {
+      const p = this.items.find(p => p.id === projectId)
+      if (!p) return
+      const u = p.updates.find(u => u.id === updateId)
+      if (!u) return
+      if (!u.attachments) u.attachments = []
+      u.attachments.push(att)
+      this._persist()
+    },
+
+    removeUpdateAttachment(projectId, updateId, attId) {
+      const p = this.items.find(p => p.id === projectId)
+      if (!p) return
+      const u = p.updates.find(u => u.id === updateId)
+      if (!u) return
+      u.attachments = (u.attachments || []).filter(a => a.id !== attId)
+      this._persist()
     },
 
     removeProjectUpdate(projectId, updateId) {
