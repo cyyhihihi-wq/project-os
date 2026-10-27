@@ -12,6 +12,7 @@ import RichEditor from '../components/shared/RichEditor.vue'
 import { organizeProgress } from '../ai/organizeService.js'
 import { extractTextFromFile, textToPreviewHtml } from '../utils/fileExtractor.js'
 import { useAuthStore } from '../stores/auth.js'
+import { uploadAttachment } from '../lib/storage.js'
 
 const projectsStore = useProjectsStore()
 const tasksStore = useTasksStore()
@@ -349,10 +350,11 @@ const progressImportedHtml = ref('')
 const progressTags = ref([])
 const progressHighlight = ref(false)
 const progressDraftTime = ref('')
-const progressAttachments = ref([])   // [{id, name, type, size, data: dataURL}]
+const progressAttachments = ref([])   // [{id, name, type, size, path?, url?, data?}]
 const aiProcessing = ref(false)
 const aiResult = ref(null)
 const progressAiError = ref('')
+const attachmentUploading = ref(false)
 
 // ── 附件工具函数 ──
 
@@ -373,8 +375,10 @@ function fileToBase64(file) {
 
 function downloadAttachment(att) {
   const a = document.createElement('a')
-  a.href = att.data
+  // 云端 URL 或本地 Base64 dataURL 均可直接下载
+  a.href = att.url || att.data || ''
   a.download = att.name
+  if (att.url) a.target = '_blank'
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
@@ -383,18 +387,36 @@ function downloadAttachment(att) {
 async function onAttachmentPick(event, target) {
   const files = Array.from(event.target.files || [])
   event.target.value = ''
-  for (const f of files) {
-    if (f.size > 10 * 1024 * 1024) {
-      progressAiError.value = `附件「${f.name}」超过 10MB 限制，已跳过`
-      continue
+  attachmentUploading.value = true
+  try {
+    for (const f of files) {
+      if (f.size > 20 * 1024 * 1024) {
+        progressAiError.value = `附件「${f.name}」超过 20MB 限制，已跳过`
+        continue
+      }
+      let att
+      if (authStore.user?.id) {
+        try {
+          att = await uploadAttachment(authStore.user.id, f)
+        } catch (uploadErr) {
+          // Supabase Storage 未就绪时降级为 Base64 本地存储
+          console.warn('[attachment] cloud upload failed, fallback to base64:', uploadErr.message)
+          const data = await fileToBase64(f)
+          att = { id: crypto.randomUUID(), name: f.name, type: f.type || 'application/octet-stream', size: f.size, data }
+        }
+      } else {
+        // 未登录时降级本地
+        const data = await fileToBase64(f)
+        att = { id: crypto.randomUUID(), name: f.name, type: f.type || 'application/octet-stream', size: f.size, data }
+      }
+      if (target === 'new') {
+        progressAttachments.value.push(att)
+      } else {
+        updateEditDraft.value.attachments = [...(updateEditDraft.value.attachments || []), att]
+      }
     }
-    const data = await fileToBase64(f)
-    const att = { id: crypto.randomUUID(), name: f.name, type: f.type || 'application/octet-stream', size: f.size, data }
-    if (target === 'new') {
-      progressAttachments.value.push(att)
-    } else {
-      updateEditDraft.value.attachments = [...(updateEditDraft.value.attachments || []), att]
-    }
+  } finally {
+    attachmentUploading.value = false
   }
 }
 
@@ -873,9 +895,9 @@ function nowDatetimeLocal() {
             <div class="mt-8">
               <div class="flex-between mb-4">
                 <label class="text-xs text-secondary">附件</label>
-                <label class="attach-pick-btn">
-                  <input type="file" multiple style="display:none" @change="onAttachmentPick($event, 'new')" />
-                  + 添加附件
+                <label class="attach-pick-btn" :class="{ 'attach-pick-uploading': attachmentUploading }">
+                  <input type="file" multiple style="display:none" @change="onAttachmentPick($event, 'new')" :disabled="attachmentUploading" />
+                  {{ attachmentUploading ? '上传中…' : '+ 添加附件' }}
                 </label>
               </div>
               <div v-if="progressAttachments.length" class="attachment-list">
@@ -965,9 +987,9 @@ function nowDatetimeLocal() {
               <div class="mb-8">
                 <div class="flex-between mb-4">
                   <label class="text-xs text-secondary">附件</label>
-                  <label class="attach-pick-btn">
-                    <input type="file" multiple style="display:none" @change="onAttachmentPick($event, 'edit')" />
-                    + 添加附件
+                  <label class="attach-pick-btn" :class="{ 'attach-pick-uploading': attachmentUploading }">
+                    <input type="file" multiple style="display:none" @change="onAttachmentPick($event, 'edit')" :disabled="attachmentUploading" />
+                    {{ attachmentUploading ? '上传中…' : '+ 添加附件' }}
                   </label>
                 </div>
                 <div v-if="updateEditDraft.attachments?.length" class="attachment-list">
@@ -1305,6 +1327,11 @@ function nowDatetimeLocal() {
 .attach-pick-btn:hover {
   border-color: var(--color-primary);
   color: var(--color-primary);
+}
+.attach-pick-uploading {
+  opacity: 0.6;
+  cursor: default;
+  pointer-events: none;
 }
 .attachment-list {
   display: flex;

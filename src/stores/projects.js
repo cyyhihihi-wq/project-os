@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { getAll, save } from '../data/adapters/index.js'
 import { supabase } from '../lib/supabase.js'
 import { syncCreate, syncUpdate, syncDelete } from '../lib/cloudSync.js'
+import { sanitizeForCloud, deleteAttachment } from '../lib/storage.js'
 
 const KEY = 'work_projects'
 
@@ -128,12 +129,13 @@ export const useProjectsStore = defineStore('projects', {
         content: data.content,
         tags: data.tags || [],
         highlight: data.highlight || false,
-        attachments: data.attachments || [],   // 本地存储，不同步云端
+        attachments: data.attachments || [],
         created_at: data.created_at || new Date().toISOString(),
       }
       p.updates.unshift(u)
       p.updated_at = new Date().toISOString()
       this._persist()
+      // 附件以 URL+path 形式同步云端（去掉 Base64 data 字段）
       syncCreate('project_updates', {
         id: u.id,
         project_id: projectId,
@@ -141,6 +143,7 @@ export const useProjectsStore = defineStore('projects', {
         content: u.content,
         tags: u.tags,
         highlight: u.highlight,
+        attachments: sanitizeForCloud(u.attachments),
         created_at: u.created_at,
       })
       return u
@@ -154,10 +157,14 @@ export const useProjectsStore = defineStore('projects', {
       Object.assign(u, changes)
       p.updated_at = new Date().toISOString()
       this._persist()
-      // attachments 含 Base64 数据，只存本地，不同步云端
-      const { attachments: _atts, ...cloudChanges } = changes
-      const { attachments: _ua, ...fullU } = u
-      syncUpdate('project_updates', updateId, cloudChanges, { ...fullU, project_id: projectId })
+      // 附件同步云端时去掉 Base64 data 字段（保留 url/path）
+      const cloudAttachments = sanitizeForCloud(u.attachments)
+      const { attachments: _a, ...restChanges } = changes
+      const { attachments: _b, ...fullU } = u
+      syncUpdate('project_updates', updateId,
+        { ...restChanges, attachments: cloudAttachments },
+        { ...fullU, project_id: projectId, attachments: cloudAttachments }
+      )
     },
 
     addUpdateAttachment(projectId, updateId, att) {
@@ -175,13 +182,23 @@ export const useProjectsStore = defineStore('projects', {
       if (!p) return
       const u = p.updates.find(u => u.id === updateId)
       if (!u) return
+      const att = (u.attachments || []).find(a => a.id === attId)
       u.attachments = (u.attachments || []).filter(a => a.id !== attId)
       this._persist()
+      // 同步删除 Supabase Storage 文件
+      if (att?.path) deleteAttachment(att.path)
     },
 
     removeProjectUpdate(projectId, updateId) {
       const p = this.items.find(p => p.id === projectId)
       if (!p) return
+      const u = p.updates.find(u => u.id === updateId)
+      // 同步删除该进展的所有 Storage 附件
+      if (u?.attachments?.length) {
+        for (const att of u.attachments) {
+          if (att.path) deleteAttachment(att.path)
+        }
+      }
       p.updates = p.updates.filter(u => u.id !== updateId)
       p.updated_at = new Date().toISOString()
       this._persist()
@@ -204,9 +221,6 @@ export const useProjectsStore = defineStore('projects', {
       if (!projects.length) return
 
       // ── 构建本地索引（用于合并而非覆盖）──
-      // 目的：
-      //   1. 恢复云端 schema 中不存在的字段（tags / highlight）
-      //   2. 保留尚未同步到云端的本地进展条目（syncCreate 失败或延迟时）
       const localProjectsById = {}
       for (const p of this.items) {
         localProjectsById[p.id] = p
@@ -223,7 +237,7 @@ export const useProjectsStore = defineStore('projects', {
       this.items = projects.map(p => {
         const localProject = localProjectsById[p.id] || { updates: [], judgements: [] }
 
-        // 本地 updates 按 id 索引，用于恢复 tags/highlight
+        // 本地 updates 按 id 索引，用于恢复 tags/highlight/attachments
         const localUpdatesById = {}
         for (const u of (localProject.updates || [])) {
           localUpdatesById[u.id] = u
@@ -235,25 +249,32 @@ export const useProjectsStore = defineStore('projects', {
         )
 
         // 云端 updates 合并策略：
-        //   tags   — 云端有内容优先；云端为 null/[] 时回落到本地缓存（兼容 DEFAULT '[]' 迁移）
-        //   highlight — 云端 true 优先；云端 false/null 时回落到本地缓存
-        // 原因：Supabase 列加默认值后旧行 tags=[], highlight=false，
-        //       直接 `??` 只能判 null/undefined，无法识别空数组/false，会误覆盖本地数据。
+        //   tags       — 云端有内容优先；云端为 null/[] 时回落到本地缓存
+        //   highlight  — 云端 true 优先
+        //   attachments — 云端有值（包含 url/path）优先；云端为 null/[] 时回落本地缓存
         const syncedUpdates = (cloudUpdates || [])
           .filter(u => u.project_id === p.id)
           .map(u => {
             const local = localUpdatesById[u.id]
-            // tags：云端非空数组 → 用云端；否则看本地；再否则空数组
+
             const cloudTags = Array.isArray(u.tags) ? u.tags : null
             const localTags = local?.tags
             const tags = (cloudTags && cloudTags.length > 0)
               ? cloudTags
               : (localTags && localTags.length > 0 ? localTags : (cloudTags ?? []))
-            // highlight：任意一方为 true 则保留 true（优先云端）
+
             const highlight = u.highlight === true
               ? true
               : (local?.highlight === true ? true : false)
-            return { ...u, tags, highlight }
+
+            // 附件：云端有值优先（URL 形式），否则保留本地（可能含 Base64 旧格式）
+            const cloudAtts = Array.isArray(u.attachments) ? u.attachments : null
+            const localAtts = local?.attachments
+            const attachments = (cloudAtts && cloudAtts.length > 0)
+              ? cloudAtts
+              : (localAtts && localAtts.length > 0 ? localAtts : (cloudAtts ?? []))
+
+            return { ...u, tags, highlight, attachments }
           })
 
         // 合并：已同步 + 待同步（本地独有），统一按时间降序
